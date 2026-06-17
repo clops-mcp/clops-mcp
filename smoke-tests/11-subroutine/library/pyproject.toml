@@ -1,0 +1,13 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "smoke-11-subroutine"
+version = "0.0.1"
+description = "Smoke test 11: Op invokes another Op as a subroutine capability."
+requires-python = ">=3.10"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["smoke_11_subroutine*"]

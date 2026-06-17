@@ -1,0 +1,13 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "smoke-03-tool-use"
+version = "0.0.1"
+description = "Smoke test 03: leaf Op invokes a Tool via call_tool."
+requires-python = ">=3.11"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["smoke_03_tool_use*"]

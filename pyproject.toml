@@ -1,0 +1,40 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+# Distribution name on PyPI. The import package and CLI stay `clops`
+# (`clops` on PyPI is an unrelated package, so the distribution is `clops-ops`).
+name = "clops-ops"
+version = "0.1.0"
+description = "A runtime for LLM-bodied functions, exposed to Claude Code via MCP."
+requires-python = ">=3.11"
+dependencies = [
+    "mcp>=1.0",
+    "tinydb>=4.8",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7",
+    "pytest-asyncio",
+    "pytest-cov",
+]
+
+[project.scripts]
+clops = "clops.cli.main:main"
+clops-server = "clops.runtime.mcp_server:main"
+clops-hook = "clops.cli.hook:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["clops*", "examples*"]
+
+[tool.setuptools.package-data]
+"clops._plugin" = [
+    "agents/*.md",
+    "skills/*/SKILL.md",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

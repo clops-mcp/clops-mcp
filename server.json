@@ -1,0 +1,11 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-07-09/server.schema.json",
+  "name": "com.clops/clops",
+  "description": "Runtime for LLM-bodied functions (Ops). Configure libraries in a .clops file.",
+  "status": "active",
+  "repository": {
+    "url": "https://github.com/wesley-harding/clops",
+    "source": "github"
+  },
+  "version": "0.1.0"
+}

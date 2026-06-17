@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "clops": {
+      "type": "stdio",
+      "command": "uv",
+      "args": [
+        "run",
+        "--project", "/Users/wesley/code/clops",
+        "clops-server",
+        "--library", "smoke_01_echo"
+      ]
+    }
+  }
+}

@@ -1,0 +1,13 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "smoke-02-pipeline"
+version = "0.0.1"
+description = "Smoke test 02: sequence(A, B) composition."
+requires-python = ">=3.11"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["smoke_02_pipeline*"]
