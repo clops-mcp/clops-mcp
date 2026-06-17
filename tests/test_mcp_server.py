@@ -235,7 +235,8 @@ def test_load_library_imports_submodules_recursively(tmp_path, monkeypatch):
 
     load_library(pkg_name)
 
-    assert "DeepEntry" in registry.ops()
+    # Registered under its qualified path; resolvable by bare name.
+    assert registry.op("DeepEntry") is not None
 
 
 # ---- Hook queue integration (via server.runtime) --------------------
