@@ -111,6 +111,19 @@ class Registry:
         """All qualified paths registered under a bare Op name (for diagnostics)."""
         return list(self._by_bare.get(bare_name, []))
 
+    def ref(self, op_cls: type) -> str:
+        """The *minimal unambiguous* reference to an Op: its bare name when that
+        name is unique in the registry, else its full qualified path.
+
+        This is what both the MCP surface (`list_processes`) and stored
+        `op_name`s use — so a project keeps simple short names everywhere and
+        only sees a qualified path when two Ops genuinely collide. `op(ref)`
+        round-trips either form."""
+        bare = op_cls.__name__
+        if len(self._by_bare.get(bare, ())) <= 1:
+            return bare
+        return qualified_name(op_cls)
+
     def snippet(self, sid: str) -> "Snippet | None":
         return self._snippets.get(sid)
 

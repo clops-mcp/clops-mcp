@@ -90,3 +90,40 @@ def test_reimport_same_path_overwrites_without_duplicating():
     reg.register_op(second)
     assert reg.op("lib/mod/X") is second                  # last-write-wins
     assert reg.qualified_paths_for("X") == ["lib/mod/X"]  # multimap not duplicated
+
+
+# ---- ref: minimal unambiguous reference (bare unless it collides) ------
+
+
+def test_ref_is_bare_when_unique_qualified_on_collision():
+    reg = Registry()
+    solo = _op("Solo", "lib_a")
+    g1 = _op("Greet", "lib_a")
+    g2 = _op("Greet", "lib_b")
+    for o in (solo, g1, g2):
+        reg.register_op(o)
+    assert reg.ref(solo) == "Solo"          # unique -> simple bare name
+    assert reg.ref(g1) == "lib_a/Greet"     # collides -> qualified
+    assert reg.ref(g2) == "lib_b/Greet"
+    # ref round-trips through op()
+    assert reg.op(reg.ref(g1)) is g1
+    assert reg.op(reg.ref(solo)) is solo
+
+
+def test_list_processes_only_qualifies_on_collision():
+    # Integration: list_processes presents bare names unless a name collides.
+    from clops.registry import registry
+    from clops.runtime.core import Runtime
+
+    def _entry(name: str, module: str) -> type:
+        cls = type(name, (), {"entry": True, "Intent": f"do {name}"})
+        cls.__module__ = module
+        return cls
+
+    for op in (_entry("Solo", "lib_a"), _entry("Greet", "lib_a"), _entry("Greet", "lib_b")):
+        registry.register_op(op)
+
+    names = {p["name"] for p in Runtime().list_processes()}
+    assert "Solo" in names                                   # unique -> bare
+    assert {"lib_a/Greet", "lib_b/Greet"} <= names           # collision -> qualified
+    assert "Greet" not in names

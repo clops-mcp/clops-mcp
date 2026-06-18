@@ -107,7 +107,7 @@ class Runtime:
         surfaced; they exist to be sub-dispatched, not kicked off.
         """
         return [
-            {"name": op.__name__, "intent": (op.Intent or "").strip()}
+            {"name": registry.ref(op), "intent": (op.Intent or "").strip()}
             for op in registry.ops().values()
             if getattr(op, "entry", False)
         ]
@@ -806,7 +806,7 @@ class Runtime:
             else:
                 execution = OpExecution(
                     id=f"exec_{uuid.uuid4().hex[:8]}",
-                    op_name=op_cls.__name__,
+                    op_name=registry.ref(op_cls),
                     run_id=run.id,
                     input_snapshot=dispatch.value,
                     kind="worker",
