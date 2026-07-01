@@ -1,7 +1,7 @@
 """`clops init` — set up a project for the clops runtime.
 
 What it writes (non-destructively; merges with existing files):
-    .mcp.json                        — clops MCP server (uvx --from clops-ops)
+    .mcp.json                        — clops MCP server (uvx --from <install spec>)
     .claude/settings.json            — SubagentStop hook
     .claude/agents/clops-executor.md  — the executor subagent
     .claude/skills/clops-orchestration/SKILL.md — the dispatch relay skill
@@ -23,6 +23,7 @@ What `init` does NOT do:
 from __future__ import annotations
 
 import json
+import os
 import shutil
 from pathlib import Path
 from typing import Optional
@@ -40,22 +41,28 @@ SKILL_SRC = PLUGIN_DIR / "skills" / "clops-orchestration" / "SKILL.md"
 
 MCP_SERVER_NAME = "clops"
 PYPI_NAME = "clops-ops"
+# clops-ops is not on PyPI yet — the runtime installs straight from the
+# (private) GitHub repo. Override with CLOPS_INSTALL_SPEC to change the source,
+# e.g. an SSH URL (`git+ssh://git@github.com/wesley-harding/clops`), a pinned
+# ref (`git+https://github.com/wesley-harding/clops@v0.2.0`), or the PyPI
+# package (`clops-ops==0.2.0`) once it's published.
+GIT_REPO = "git+https://github.com/wesley-harding/clops"
 GITIGNORE_LINE = ".claude/.clops/"
 
 
 def install_spec() -> str:
-    """The ``uvx --from`` target for clops: ``clops-ops`` pinned to the running
-    version when known, else unpinned.
+    """The ``uvx --from`` target for the clops runtime.
 
-    Pinning makes a project's generated MCP server + hook reproducible (and keeps
-    the server and hook on the *same* clops version). The fallback keeps ``init``
-    working from a source checkout where version metadata isn't resolvable."""
-    from importlib.metadata import PackageNotFoundError, version
-
-    try:
-        return f"{PYPI_NAME}=={version(PYPI_NAME)}"
-    except PackageNotFoundError:
-        return PYPI_NAME
+    Defaults to the GitHub repo (default branch) since ``clops-ops`` isn't
+    published to PyPI yet. ``CLOPS_INSTALL_SPEC`` overrides it entirely — set it
+    to an SSH URL, a pinned ``@<ref>``, or the PyPI spec once published. Using a
+    single source keeps a project's generated MCP server + hook on the same
+    clops build.
+    """
+    override = os.environ.get("CLOPS_INSTALL_SPEC")
+    if override:
+        return override
+    return GIT_REPO
 
 
 HOOK_COMMAND = f"uvx --from {install_spec()} clops-hook"

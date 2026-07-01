@@ -6,12 +6,14 @@ import json
 from pathlib import Path
 
 from clops.cli.init import (
+    GIT_REPO,
     GITIGNORE_LINE,
     HOOK_COMMAND,
     MCP_SERVER_NAME,
     build_mcp_json,
     build_settings_patch,
     init_project,
+    install_spec,
     merge_settings,
 )
 
@@ -34,17 +36,31 @@ def test_build_mcp_json_plain_libraries():
     mcp = build_mcp_json(["my_company.ops"], [])
     server = mcp["mcpServers"][MCP_SERVER_NAME]
     assert server["command"] == "uvx"
-    # `uvx --from clops-ops[==ver] clops-server ...`
+    # `uvx --from <install-spec> clops-server ...`
     assert server["args"][0] == "--from"
-    assert server["args"][1].startswith("clops-ops")
+    assert server["args"][1] == install_spec()
     assert "clops-server" in server["args"]
     assert "--library" in server["args"]
     assert "my_company.ops" in server["args"]
     assert "--with" not in server["args"]
 
 
-def test_hook_command_targets_clops_ops():
-    assert HOOK_COMMAND.startswith("uvx --from clops-ops")
+def test_install_spec_defaults_to_github_repo(monkeypatch):
+    monkeypatch.delenv("CLOPS_INSTALL_SPEC", raising=False)
+    assert install_spec() == GIT_REPO
+    assert GIT_REPO.startswith("git+")
+
+
+def test_install_spec_env_override(monkeypatch):
+    monkeypatch.setenv("CLOPS_INSTALL_SPEC", "clops-ops==9.9.9")
+    assert install_spec() == "clops-ops==9.9.9"
+    # And it flows through to the generated MCP server args + hook command.
+    server = build_mcp_json(["my_ops"], [])["mcpServers"][MCP_SERVER_NAME]
+    assert server["args"][1] == "clops-ops==9.9.9"
+
+
+def test_hook_command_targets_install_spec():
+    assert HOOK_COMMAND.startswith("uvx --from ")
     assert HOOK_COMMAND.endswith("clops-hook")
 
 

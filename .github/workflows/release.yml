@@ -55,7 +55,12 @@ jobs:
       - name: Build sdist + wheel
         run: uv build
 
+      # clops-ops is not on PyPI yet. Publishing is gated on the `PUBLISH_PYPI`
+      # repo variable so tag releases don't fail on the missing trusted
+      # publisher — set it to "true" (Settings → Secrets and variables →
+      # Actions → Variables) once the PyPI trusted publisher is configured.
       - name: Publish to PyPI
+        if: ${{ vars.PUBLISH_PYPI == 'true' }}
         run: uv publish
 
       - name: Create GitHub release

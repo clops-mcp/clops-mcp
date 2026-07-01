@@ -54,20 +54,22 @@ class ManageProject(Op):
 
 ## Install
 
-clops runs via `uvx` — nothing needs to live on your `PATH`. The published package is **`clops-ops`** (the `clops` name on PyPI belongs to an unrelated project); the import and CLI are still `clops`.
+clops runs via `uvx` — nothing needs to live on your `PATH`. It isn't on PyPI yet, so install it straight from this GitHub repo (the distribution is **`clops-ops`**; the import and CLI are still `clops`). Access requires a clone/read grant on the repo — `uvx` uses your configured git credentials.
 
 ```bash
 # Run the CLI without installing — uvx fetches and caches on demand:
-uvx --from clops-ops clops --help
+uvx --from git+https://github.com/wesley-harding/clops clops --help
 ```
+
+> Prefer SSH (or want to pin a tag)? Set `CLOPS_INSTALL_SPEC` before running `clops init`, e.g. `export CLOPS_INSTALL_SPEC='git+ssh://git@github.com/wesley-harding/clops'` — `init` bakes it into the generated `.mcp.json` and hook.
 
 ### Set up a project (one command)
 
 ```bash
-uvx --from clops-ops clops init --library my_ops
+uvx --from git+https://github.com/wesley-harding/clops clops init --library my_ops
 ```
 
-This writes a **self-contained** setup — `.mcp.json` (the clops MCP server), the SubagentStop hook, the executor agent, and the orchestration skill. The generated `.mcp.json` runs `uvx --from clops-ops clops-server` and pulls any Op-library sources via `--with` at server start, so a fresh clone of your project needs only `uv` installed.
+This writes a **self-contained** setup — `.mcp.json` (the clops MCP server), the SubagentStop hook, the executor agent, and the orchestration skill. The generated `.mcp.json` runs `uvx --from git+https://github.com/wesley-harding/clops clops-server` (or your `CLOPS_INSTALL_SPEC`) and pulls any Op-library sources via `--with` at server start, so a fresh clone of your project needs only `uv` installed and git access to this repo.
 
 ### Optional: the Claude Code plugin
 
@@ -88,7 +90,7 @@ uv sync
 
 ## Create a project
 
-> Tip: for a persistent `clops` on your `PATH`, run `uv tool install clops-ops`. Otherwise prefix any command with `uvx --from clops-ops` (e.g. `uvx --from clops-ops clops new-library my_ops`).
+> Tip: for a persistent `clops` on your `PATH`, run `uv tool install git+https://github.com/wesley-harding/clops`. Otherwise prefix any command with `uvx --from git+https://github.com/wesley-harding/clops` (e.g. `uvx --from git+https://github.com/wesley-harding/clops clops new-library my_ops`).
 
 ```bash
 # Scaffold a new library
