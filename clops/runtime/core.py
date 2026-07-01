@@ -32,6 +32,17 @@ from clops.runtime.state import (
 )
 
 
+#: Orchestrator guidance applied to every run unless a project overrides it
+#: with a `[system_prompt]` section in `.clops`. Kept deliberately small and
+#: mechanical: it steers how the main execution flow sizes its dispatches,
+#: nothing more. Surfaced verbatim on the first `start_process` payload.
+DEFAULT_SYSTEM_PROMPT = (
+    "When you dispatch agents, weigh the skill each task demands and "
+    "right-size the agent (and its model) to that task — reserve the most "
+    "capable agents for the steps that genuinely need them."
+)
+
+
 def _now() -> datetime:
     return datetime.now(timezone.utc)
 
@@ -127,6 +138,13 @@ class Runtime:
         #                          value wherever a branch/loop or the run's
         #                          terminal output consumes it in-band.
         self._settings: dict[str, str] = {}
+        # Guidance surfaced to the orchestrator at the top of every start()
+        # payload as `system_prompt` — standing direction for how the main
+        # execution flow manages the run's dispatches (e.g. how to size the
+        # agent it dispatches to a task). Defaults to DEFAULT_SYSTEM_PROMPT;
+        # a project's .clops [system_prompt] section overrides it at boot.
+        # Set to None to suppress the field entirely.
+        self._system_prompt: Optional[str] = DEFAULT_SYSTEM_PROMPT
 
     @property
     def _manifest_mode(self) -> bool:
@@ -212,7 +230,16 @@ class Runtime:
             )
 
         run = self._make_run(op_cls, process, input_value)
-        return self._drive(run)
+        payload = self._drive(run)
+        # Surface the configured system prompt once, at the start of the run,
+        # on the first dispatch the orchestrator receives. Purely additive:
+        # runs advance via step_complete, which never carries it again.
+        if self._system_prompt and payload.get("action") in (
+            "dispatch",
+            "dispatch_parallel",
+        ):
+            payload["system_prompt"] = self._system_prompt
+        return payload
 
     def _make_run(self, op_cls: type[Op], process: str, input_value: Any) -> Run:
         """Create and register a Run: its state stores and the single coroutine

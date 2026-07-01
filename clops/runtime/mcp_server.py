@@ -520,6 +520,10 @@ def build_server_from_argv(argv: list[str]) -> FlowServer:
     srv._constants = clops_config.constants
     srv.runtime._project_constants = clops_config.constants
     srv.runtime._settings = clops_config.settings
+    # A configured [system_prompt] overrides the built-in default; leaving the
+    # section out keeps DEFAULT_SYSTEM_PROMPT (set on the Runtime).
+    if clops_config.system_prompt is not None:
+        srv.runtime._system_prompt = clops_config.system_prompt
     srv.load_library_safe()
     return srv
 

@@ -13,6 +13,7 @@ when-to-use: >
    - If the user doesn't know what's available, call `mcp__clops__list_processes()` first.
 
 2. You will receive a payload with `action`.
+   - If the payload carries a top-level `system_prompt` (only the first payload of a run does), read it before you dispatch anything. It is standing project guidance for how you manage this run — e.g. how to size the agent you dispatch to a given step. Keep it in mind for every dispatch in this run. It does **not** override the mechanical relay below or license you to edit the rendered dispatch prompt (see Discipline).
    - If `action == "dispatch"`: invoke the Agent tool **once**:
      - `subagent_type`: the value of `agent_template` (always `"clops-executor"`)
      - `description`: `agent_config.description` (verbatim)

@@ -288,6 +288,177 @@ def test_read_clops_config_parses_runtime_section(tmp_path):
     assert cfg.constants == {"user_id": "wes"}
 
 
+# ---- .clops [system_prompt] section ----------------------------------
+
+
+def test_read_clops_config_system_prompt_default_none(tmp_path):
+    (tmp_path / CLOPS_FILENAME).write_text("my_ops\n")
+    cfg = read_clops_config(tmp_path)
+    assert cfg.system_prompt is None
+
+
+def test_read_clops_config_parses_system_prompt(tmp_path):
+    (tmp_path / CLOPS_FILENAME).write_text(
+        "my_ops\n\n"
+        "[system_prompt]\n"
+        "When you dispatch agents, consider the skill of the task\n"
+        "for the level of agent necessary.\n"
+    )
+    cfg = read_clops_config(tmp_path)
+    assert cfg.libraries == ["my_ops"]
+    assert cfg.system_prompt == (
+        "When you dispatch agents, consider the skill of the task\n"
+        "for the level of agent necessary."
+    )
+
+
+def test_read_clops_config_system_prompt_preserves_prose(tmp_path):
+    """Blank lines and '#' headings inside the body are content, not comments."""
+    (tmp_path / CLOPS_FILENAME).write_text(
+        "[system_prompt]\n"
+        "# Dispatch policy\n"
+        "\n"
+        "Right-size the agent to the task.\n"
+    )
+    cfg = read_clops_config(tmp_path)
+    assert cfg.system_prompt == (
+        "# Dispatch policy\n"
+        "\n"
+        "Right-size the agent to the task."
+    )
+
+
+def test_read_clops_config_system_prompt_closed_by_next_section(tmp_path):
+    (tmp_path / CLOPS_FILENAME).write_text(
+        "[system_prompt]\n"
+        "Guidance line.\n"
+        "[constants]\n"
+        "user_id = wes\n"
+    )
+    cfg = read_clops_config(tmp_path)
+    assert cfg.system_prompt == "Guidance line."
+    assert cfg.constants == {"user_id": "wes"}
+
+
+def test_read_clops_config_empty_system_prompt_is_none(tmp_path):
+    (tmp_path / CLOPS_FILENAME).write_text(
+        "[system_prompt]\n\n\n[constants]\nk = v\n"
+    )
+    cfg = read_clops_config(tmp_path)
+    assert cfg.system_prompt is None
+    assert cfg.constants == {"k": "v"}
+
+
+def test_system_prompt_surfaced_on_start_payload():
+    """A configured system prompt rides the first dispatch payload of a run."""
+    from clops import Concept, Op
+    from clops.registry import registry
+    from clops.runtime import Runtime
+
+    registry.clear()
+
+    class X(Concept):
+        description = "x"
+
+    class Y(Concept):
+        description = "y"
+
+    class Worker(Op):
+        Input = X
+        Output = Y
+        Intent = "Work"
+        Meta = "Test."
+        entry = True
+
+    rt = Runtime()
+    rt._system_prompt = "Right-size the agent to the task."
+    d = rt.start("Worker", "input", enforce_entry=True)
+    assert d["action"] == "dispatch"
+    assert d["system_prompt"] == "Right-size the agent to the task."
+
+    registry.clear()
+
+
+def test_default_system_prompt_surfaced_when_unconfigured():
+    """A fresh Runtime carries the built-in default and surfaces it."""
+    from clops import Concept, Op
+    from clops.registry import registry
+    from clops.runtime import Runtime
+    from clops.runtime.core import DEFAULT_SYSTEM_PROMPT
+
+    registry.clear()
+
+    class X(Concept):
+        description = "x"
+
+    class Y(Concept):
+        description = "y"
+
+    class Worker(Op):
+        Input = X
+        Output = Y
+        Intent = "Work"
+        Meta = "Test."
+        entry = True
+
+    rt = Runtime()
+    assert rt._system_prompt == DEFAULT_SYSTEM_PROMPT
+    d = rt.start("Worker", "input", enforce_entry=True)
+    assert d["system_prompt"] == DEFAULT_SYSTEM_PROMPT
+
+    registry.clear()
+
+
+def test_no_system_prompt_key_when_suppressed():
+    from clops import Concept, Op
+    from clops.registry import registry
+    from clops.runtime import Runtime
+
+    registry.clear()
+
+    class X(Concept):
+        description = "x"
+
+    class Y(Concept):
+        description = "y"
+
+    class Worker(Op):
+        Input = X
+        Output = Y
+        Intent = "Work"
+        Meta = "Test."
+        entry = True
+
+    rt = Runtime()
+    rt._system_prompt = None  # explicit suppression
+    d = rt.start("Worker", "input", enforce_entry=True)
+    assert "system_prompt" not in d
+
+    registry.clear()
+
+
+def test_configured_system_prompt_overrides_default_at_boot(tmp_path):
+    """A [system_prompt] section replaces DEFAULT_SYSTEM_PROMPT on the Runtime."""
+    from clops.runtime.core import DEFAULT_SYSTEM_PROMPT
+    from clops.runtime.mcp_server import build_server_from_argv
+
+    (tmp_path / CLOPS_FILENAME).write_text(
+        "[system_prompt]\nProject-specific dispatch guidance.\n"
+    )
+    srv = build_server_from_argv(["--project-dir", str(tmp_path)])
+    assert srv.runtime._system_prompt == "Project-specific dispatch guidance."
+    assert srv.runtime._system_prompt != DEFAULT_SYSTEM_PROMPT
+
+
+def test_boot_keeps_default_when_no_system_prompt_section(tmp_path):
+    from clops.runtime.core import DEFAULT_SYSTEM_PROMPT
+    from clops.runtime.mcp_server import build_server_from_argv
+
+    (tmp_path / CLOPS_FILENAME).write_text("my_ops\n[constants]\nk = v\n")
+    srv = build_server_from_argv(["--project-dir", str(tmp_path)])
+    assert srv.runtime._system_prompt == DEFAULT_SYSTEM_PROMPT
+
+
 # ---- module @ source syntax ------------------------------------------
 
 

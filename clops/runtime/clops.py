@@ -55,6 +55,7 @@ class ClopsConfig:
     entries: list[LibraryEntry] = field(default_factory=list)
     constants: dict[str, str] = field(default_factory=dict)
     settings: dict[str, str] = field(default_factory=dict)
+    system_prompt: str | None = None
 
     @property
     def libraries(self) -> list[str]:
@@ -95,7 +96,12 @@ def read_clops_config(project_dir: Path) -> ClopsConfig:
     The ``[constants]`` section contains ``key = value`` pairs.
     The ``[runtime]`` section contains ``key = value`` runtime settings
     (e.g. ``output_contract = manifest``).
-    Comments (``#``) and blank lines are ignored everywhere.
+    The ``[system_prompt]`` section is free-form prose surfaced to the
+    orchestrator at the start of every run — standing guidance for how
+    the main execution flow manages the run's dispatches. Its body is
+    captured verbatim (blank lines and ``#`` markdown headings are
+    content, not comments) until the next ``[section]`` header.
+    Comments (``#``) and blank lines are ignored in every other section.
     """
     clops_path = project_dir / CLOPS_FILENAME
     if not clops_path.exists():
@@ -104,16 +110,25 @@ def read_clops_config(project_dir: Path) -> ClopsConfig:
     entries: list[LibraryEntry] = []
     constants: dict[str, str] = {}
     settings: dict[str, str] = {}
+    system_prompt_lines: list[str] = []
     current_section: str | None = None
 
     for line in clops_path.read_text().splitlines():
         stripped = line.strip()
-        if not stripped or stripped.startswith("#"):
-            continue
 
-        # Section header?
+        # Section header? Checked before comment/blank skipping so it still
+        # closes the free-form [system_prompt] body when one is open.
         if stripped.startswith("[") and stripped.endswith("]"):
             current_section = stripped[1:-1].strip().lower()
+            continue
+
+        # The system_prompt body is prose: keep raw lines (including blanks
+        # and '#' headings) so the author's formatting survives intact.
+        if current_section == "system_prompt":
+            system_prompt_lines.append(line)
+            continue
+
+        if not stripped or stripped.startswith("#"):
             continue
 
         if current_section is None:
@@ -127,4 +142,11 @@ def read_clops_config(project_dir: Path) -> ClopsConfig:
                 key, _, value = stripped.partition("=")
                 settings[key.strip()] = value.strip()
 
-    return ClopsConfig(entries=entries, constants=constants, settings=settings)
+    system_prompt = "\n".join(system_prompt_lines).strip() or None
+
+    return ClopsConfig(
+        entries=entries,
+        constants=constants,
+        settings=settings,
+        system_prompt=system_prompt,
+    )
