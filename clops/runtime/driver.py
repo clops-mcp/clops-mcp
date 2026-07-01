@@ -45,6 +45,11 @@ class Dispatch:
     need_supplemental: Any = None
     depth: int = 0
     caller_execution_id: Any = None
+    # Whether this leaf's output is consumed in-band (branch/loop decision, loop
+    # accumulator, or the run's terminal output) vs. only read by a downstream
+    # agent. The dispatch prompt asks for the real Output when True, and (under
+    # the manifest output contract) a one-line manifest when False.
+    require_full_output: bool = True
 
 
 @dataclass

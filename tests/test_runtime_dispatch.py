@@ -89,3 +89,42 @@ def test_agent_config_adds_model_when_op_declares_one():
 
     config = build_agent_config(WithModel, "x", run_id="r1", execution_id="e1")
     assert config["model"] == "sonnet"
+
+
+# ---- Manifest output contract ----------------------------------------
+
+
+def test_default_contract_asks_for_full_output():
+    Op = _make_op()
+    prompt = render_prompt(Op, "hi", execution_id="exec_x")
+    assert "## What you'll produce" in prompt
+    assert "## What to hold by the end" not in prompt
+    assert "one-line manifest" not in prompt
+
+
+def test_manifest_mode_lightens_a_non_inband_leaf():
+    Op = _make_op()
+    prompt = render_prompt(
+        Op, "hi", execution_id="exec_x",
+        manifest_mode=True, require_full_output=False,
+    )
+    # Hold-checklist framing replaces the serialize-everything framing.
+    assert "## What to hold by the end" in prompt
+    assert "## What you'll produce" not in prompt
+    # complete() asks for a one-line manifest, not the full contents.
+    assert "one-line manifest" in prompt
+    # The Output concept is still named so the agent knows what to hold.
+    assert "Out" in prompt
+
+
+def test_manifest_mode_keeps_inband_leaf_full():
+    # A leaf whose output is consumed in-band (branch/loop/terminal) keeps the
+    # full-output contract even when the run is in manifest mode.
+    Op = _make_op()
+    prompt = render_prompt(
+        Op, "hi", execution_id="exec_x",
+        manifest_mode=True, require_full_output=True,
+    )
+    assert "## What you'll produce" in prompt
+    assert "## What to hold by the end" not in prompt
+    assert "one-line manifest" not in prompt

@@ -17,6 +17,12 @@ Read your prompt carefully. Perform the task. When done, call:
 
     mcp__clops__complete(execution_id="<your id>", output=<your output>)
 
+Follow your prompt's "Exit conditions" for what `output` should be. Most of the
+time it asks for your full result. Under the manifest contract it instead asks
+for a SHORT one-line manifest naming what you are holding (e.g.
+"parsed_config, error_list") — your real work stays in your reply, and a later
+step pulls specifics only if it needs them. Do whichever your prompt says.
+
 If you cannot proceed (missing information, malformed input), call:
 
     mcp__clops__need(execution_id="<your id>", reason="<why>")

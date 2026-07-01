@@ -42,6 +42,8 @@ def render_prompt(
     need_supplemental: Any = None,
     pending_subroutine_result: Optional[dict] = None,
     state_manager: Optional[Any] = None,
+    manifest_mode: bool = False,
+    require_full_output: bool = True,
 ) -> str:
     """Assemble the full prompt for a single leaf dispatch.
 
@@ -63,6 +65,13 @@ def render_prompt(
 
     input_cls = op_cls.Input
     output_cls = op_cls.Output
+
+    # Manifest contract: when the run is configured for manifest output AND this
+    # leaf's output is not consumed in-band (no branch/loop decision, no loop
+    # accumulator, not the run's terminal output), the agent confirms what it is
+    # holding by name instead of serializing the full Output. Downstream steps
+    # pull specifics on demand.
+    use_manifest = manifest_mode and not require_full_output
 
     lines: list[str] = []
     lines.append(f"# {op_cls.__name__}")
@@ -89,9 +98,19 @@ def render_prompt(
     lines.append(f"{input_cls.__name__}: {input_cls.description.strip()}")
     lines.extend(_render_concept_fields(input_cls))
     lines.append("")
-    lines.append("## What you'll produce")
-    lines.append(f"{output_cls.__name__}: {output_cls.description.strip()}")
-    lines.extend(_render_concept_fields(output_cls))
+    if use_manifest:
+        lines.append("## What to hold by the end")
+        lines.append(
+            f"By the end of this step you should be holding {output_cls.__name__} "
+            f"({output_cls.description.strip()}). Keep it in your working memory and "
+            "reply — you do NOT need to write it all out for clops. A later step will "
+            "ask you for any piece it actually needs."
+        )
+        lines.extend(_render_concept_fields(output_cls))
+    else:
+        lines.append("## What you'll produce")
+        lines.append(f"{output_cls.__name__}: {output_cls.description.strip()}")
+        lines.extend(_render_concept_fields(output_cls))
 
     # Separate programmatic Tools from Op subroutine capabilities.
     tool_entries = [t for t in op_cls.Tools if not (isinstance(t, type) and issubclass(t, Op))]
@@ -165,10 +184,20 @@ def render_prompt(
     lines.append("## Exit conditions")
     lines.append(f"Your execution_id is `{execution_id}`. Pass it on every call.")
     lines.append("")
-    lines.append(
-        f"- Call `mcp__clops__complete(execution_id=\"{execution_id}\", output=…)` "
-        "when your step is done. Include reasoning with your output."
-    )
+    if use_manifest:
+        lines.append(
+            f"- Call `mcp__clops__complete(execution_id=\"{execution_id}\", output=…)` "
+            "when your step is done. For `output`, pass a SHORT one-line manifest "
+            "naming what you are now holding that a later step could ask you for "
+            '(e.g. "parsed_config, error_list, summary"). Do not write out the full '
+            "contents — your actual work stays in your reply, and you'll be asked for "
+            "specifics only if a later step needs them."
+        )
+    else:
+        lines.append(
+            f"- Call `mcp__clops__complete(execution_id=\"{execution_id}\", output=…)` "
+            "when your step is done. Include reasoning with your output."
+        )
     lines.append(
         f"- Call `mcp__clops__need(execution_id=\"{execution_id}\", reason=…)` "
         "if you cannot proceed (missing info, malformed input)."
@@ -234,6 +263,8 @@ def build_agent_config(
     need_supplemental: Any = None,
     pending_subroutine_result: Optional[dict] = None,
     state_manager: Optional[Any] = None,
+    manifest_mode: bool = False,
+    require_full_output: bool = True,
 ) -> dict[str, Any]:
     """Build the per-dispatch subagent config payload.
 
@@ -254,6 +285,8 @@ def build_agent_config(
         need_supplemental=need_supplemental,
         pending_subroutine_result=pending_subroutine_result,
         state_manager=state_manager,
+        manifest_mode=manifest_mode,
+        require_full_output=require_full_output,
     )
 
     config: dict[str, Any] = {

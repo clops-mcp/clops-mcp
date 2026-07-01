@@ -7,9 +7,19 @@ hook is modeled as calls to `release_one_completed(parent_session_id)`.
 
 import pytest
 
-from clops import Concept, Op, sequence
+from clops import Concept, Op, branch_on, loop, sequence
 from clops.runtime import ExecutionStatus, Runtime, RunStatus
 from clops.runtime.core import RuntimeError_
+
+
+def _holds(dispatch: dict) -> bool:
+    """True if the dispatch prompt uses the manifest (hold-checklist) contract."""
+    return "## What to hold by the end" in dispatch["agent_config"]["prompt"]
+
+
+def _full(dispatch: dict) -> bool:
+    """True if the dispatch prompt uses the full-output contract."""
+    return "## What you'll produce" in dispatch["agent_config"]["prompt"]
 
 
 class M(Concept):
@@ -1628,3 +1638,226 @@ def test_branch_on_arm_can_be_a_composition(branch_library):
     done = rt.step_complete(run_id, "i2-out")
     assert done["action"] == "done"
     assert done["output"] == "i2-out"
+
+
+# ---- Manifest output contract ----------------------------------------
+
+
+def _manifest_runtime() -> Runtime:
+    rt = Runtime()
+    rt._settings = {"output_contract": "manifest"}
+    return rt
+
+
+def test_manifest_lightens_intermediate_sequence_steps_only():
+    """Intermediate steps emit a manifest; the terminal step (the run output)
+    keeps the full-output contract."""
+
+    class SM(Concept):
+        description = "m"
+
+    class SR(Concept):
+        description = "r"
+
+    class MStep1(Op):
+        Input = SM; Output = SR; Intent = "one"; Meta = "manifest seq fixture"
+
+    class MStep2(Op):
+        Input = SR; Output = SR; Intent = "two"; Meta = "manifest seq fixture"
+
+    class MStep3(Op):
+        Input = SR; Output = SR; Intent = "three"; Meta = "manifest seq fixture"
+
+    class MThreeStep(Op):
+        Input = SM; Output = SR; Intent = "seq"; Meta = "manifest seq fixture"
+        body = sequence(MStep1, MStep2, MStep3)
+        entry = True
+
+    rt = _manifest_runtime()
+    d1 = rt.start("MThreeStep", "in")
+    assert _holds(d1) and not _full(d1)  # step 1 -> manifest
+
+    persona_complete(rt, _pending_id(rt, d1["run_id"]), "s1")
+    d2 = rt.step_complete(d1["run_id"], "s1")
+    assert _holds(d2) and not _full(d2)  # step 2 -> manifest
+
+    persona_complete(rt, _pending_id(rt, d2["run_id"]), "s2")
+    d3 = rt.step_complete(d2["run_id"], "s2")
+    assert _full(d3) and not _holds(d3)  # terminal step -> full
+
+    persona_complete(rt, _pending_id(rt, d3["run_id"]), "s3")
+    done = rt.step_complete(d3["run_id"], "s3")
+    assert done["action"] == "done"
+
+
+def test_manifest_keeps_branch_key_step_and_handler_full():
+    """A step feeding a branch_on key stays full (the key runs on str(output)),
+    and the handler arm is terminal so it stays full too."""
+
+    class BM(Concept):
+        description = "m"
+
+    class BC(Concept):
+        description = "cat"
+
+    class BRep(Concept):
+        description = "reply"
+
+    class BTriage(Op):
+        Input = BM; Output = BC; Intent = "classify"; Meta = "manifest branch fixture"
+
+    class BHandleX(Op):
+        Input = BC; Output = BRep; Intent = "x"; Meta = "manifest branch fixture"
+
+    class BHandleY(Op):
+        Input = BC; Output = BRep; Intent = "y"; Meta = "manifest branch fixture"
+
+    def _key(out):
+        return "x" if "x" in str(out) else "y"
+
+    class BRoute(Op):
+        Input = BM; Output = BRep; Intent = "route"; Meta = "manifest branch fixture"
+        body = sequence(
+            BTriage,
+            branch_on(key=_key, arms={"x": BHandleX, "y": BHandleY}),
+        )
+        entry = True
+
+    rt = _manifest_runtime()
+    d1 = rt.start("BRoute", "go")
+    assert d1["agent_config"]["description"].startswith("Execute BTriage")
+    assert _full(d1) and not _holds(d1)  # feeds branch_on key -> full
+
+    persona_complete(rt, _pending_id(rt, d1["run_id"]), "x")
+    d2 = rt.step_complete(d1["run_id"], "x")
+    assert d2["agent_config"]["description"].startswith("Execute BHandleX")
+    assert _full(d2) and not _holds(d2)  # terminal handler -> full
+
+
+def test_manifest_keeps_loop_seed_and_body_full():
+    """The seed feeding a loop and the loop body (accumulator + until) stay full."""
+
+    class LT(Concept):
+        description = "topic"
+
+    class LB(Concept):
+        description = "benefits"
+
+    class LSeed(Op):
+        Input = LT; Output = LB; Intent = "seed"; Meta = "manifest loop fixture"
+
+    class LRefine(Op):
+        Input = LB; Output = LB; Intent = "refine"; Meta = "manifest loop fixture"
+
+    class LBrainstorm(Op):
+        Input = LT; Output = LB; Intent = "brainstorm"; Meta = "manifest loop fixture"
+        body = sequence(
+            LSeed,
+            loop(body=LRefine, until=lambda o: "[done]" in str(o), max_iterations=3),
+        )
+        entry = True
+
+    rt = _manifest_runtime()
+    d1 = rt.start("LBrainstorm", "ai")
+    assert d1["agent_config"]["description"].startswith("Execute LSeed")
+    assert _full(d1) and not _holds(d1)  # feeds the loop -> full
+
+    persona_complete(rt, _pending_id(rt, d1["run_id"]), "b1")
+    d2 = rt.step_complete(d1["run_id"], "b1")
+    assert d2["agent_config"]["description"].startswith("Execute LRefine")
+    assert _full(d2) and not _holds(d2)  # loop body -> full
+
+    persona_complete(rt, _pending_id(rt, d2["run_id"]), "b2 [done]")
+    done = rt.step_complete(d2["run_id"], "b2 [done]")
+    assert done["action"] == "done"
+
+
+def test_full_contract_is_the_default_without_settings():
+    """Without the manifest setting, every step uses the full-output contract."""
+
+    class DM(Concept):
+        description = "m"
+
+    class DR(Concept):
+        description = "r"
+
+    class DStep1(Op):
+        Input = DM; Output = DR; Intent = "one"; Meta = "default contract fixture"
+
+    class DStep2(Op):
+        Input = DR; Output = DR; Intent = "two"; Meta = "default contract fixture"
+
+    class DTwoStep(Op):
+        Input = DM; Output = DR; Intent = "seq"; Meta = "default contract fixture"
+        body = sequence(DStep1, DStep2)
+        entry = True
+
+    rt = Runtime()  # no manifest setting
+    d1 = rt.start("DTwoStep", "in")
+    assert _full(d1) and not _holds(d1)
+
+    persona_complete(rt, _pending_id(rt, d1["run_id"]), "s1")
+    d2 = rt.step_complete(d1["run_id"], "s1")
+    assert _full(d2) and not _holds(d2)
+
+
+def test_manifest_gather_branch_deliverables_full_internals_light():
+    """Under manifest mode: a gather branch's deliverable (terminal output)
+    stays full so the join gets real values, while branch-internal steps and
+    the step feeding the gather stay light."""
+    from clops import gather
+
+    class GM(Concept):
+        description = "m"
+
+    class GR(Concept):
+        description = "r"
+
+    class GSeed(Op):
+        Input = GM; Output = GR; Intent = "s"; Meta = "manifest gather fixture"
+
+    class GA1(Op):
+        Input = GR; Output = GR; Intent = "a1"; Meta = "manifest gather fixture"
+
+    class GA2(Op):
+        Input = GR; Output = GR; Intent = "a2"; Meta = "manifest gather fixture"
+
+    class GB(Op):
+        Input = GR; Output = GR; Intent = "b"; Meta = "manifest gather fixture"
+
+    class GSynth(Op):
+        Input = GR; Output = GR; Intent = "syn"; Meta = "manifest gather fixture"
+
+    class GFlow(Op):
+        Input = GM; Output = GR; Intent = "flow"; Meta = "manifest gather fixture"
+        body = sequence(GSeed, gather(sequence(GA1, GA2), GB), GSynth)
+        entry = True
+
+    rt = _manifest_runtime()
+    d1 = rt.start("GFlow", "x")
+    # Seed feeds the gather (agent-consumed fan-out) -> manifest.
+    assert _holds(d1) and not _full(d1)
+
+    persona_complete(rt, _pending_id(rt, d1["run_id"]), "seed")
+    r1 = rt.step_complete(d1["run_id"], "seed")
+    assert r1["action"] == "dispatch_parallel"
+    # Round 1: [GA1 (branch-internal -> manifest), GB (single-step deliverable -> full)].
+    prompt_by_op = {
+        c["description"].split()[1]: c["prompt"] for c in r1["agent_configs"]
+    }
+    assert "## What to hold by the end" in prompt_by_op["GA1"]   # internal -> light
+    assert "## What you'll produce" in prompt_by_op["GB"]        # deliverable -> full
+
+    ids1 = r1["execution_ids"]
+    r2 = rt.step_complete_parallel(
+        d1["run_id"], {ids1[0]: "x1", ids1[1]: "b-out"}
+    )
+    # Round 2: [GA2 (the track's deliverable -> full)].
+    assert r2["action"] == "dispatch_parallel"
+    assert "## What you'll produce" in r2["agent_configs"][0]["prompt"]
+
+    ids2 = r2["execution_ids"]
+    d_synth = rt.step_complete_parallel(d1["run_id"], {ids2[0]: "a-out"})
+    # Synth is terminal -> full.
+    assert d_synth["agent_config"]["description"].startswith("Execute GSynth")
+    assert _full(d_synth) and not _holds(d_synth)

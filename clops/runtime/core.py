@@ -59,6 +59,27 @@ class NeedResolved:
     supplemental: Any
 
 
+def _consumes_in_band(node: Any) -> bool:
+    """Does ``node``, fed the upstream step's output as its input, consume that
+    value *in-band* — i.e. the runtime branches on it, or a loop threads it as
+    an accumulator — rather than merely handing it to an agent?
+
+    When True, the upstream step must emit its real ``Output`` value rather than
+    a one-line manifest: ``branch_on`` keys and ``loop`` ``until`` predicates run
+    on ``str(output)``, and a loop carry must thread the actual accumulator. When
+    False, the value is only ever read by another agent, which can pull specifics
+    on demand — so a manifest suffices under the manifest output contract.
+    """
+    if isinstance(node, (BranchOn, Loop)):
+        return True
+    if isinstance(node, type) and issubclass(node, Op):
+        body = getattr(node, "body", None)
+        return body is not None and _consumes_in_band(body)
+    if isinstance(node, Sequence):
+        return bool(node.steps) and _consumes_in_band(node.steps[0])
+    return False
+
+
 class Runtime:
     """Authoritative state container for active runs.
 
@@ -96,6 +117,23 @@ class Runtime:
         # Project-level constants from .clops [constants] section.
         # Set by the MCP server at boot; injected as read-only stores on each run.
         self._project_constants: dict[str, str] = {}
+        # Runtime settings from .clops [runtime] section (set at boot). The
+        # `output_contract` key governs the complete() prompt contract:
+        #   "full"     (default) — agent serializes its structured Output.
+        #   "manifest"           — agent emits a one-line manifest of what it's
+        #                          holding; the harness already carries the real
+        #                          result, and downstream steps pull specifics on
+        #                          demand. The runtime still asks for the real
+        #                          value wherever a branch/loop or the run's
+        #                          terminal output consumes it in-band.
+        self._settings: dict[str, str] = {}
+
+    @property
+    def _manifest_mode(self) -> bool:
+        return (
+            self._settings.get("output_contract", "full").strip().lower()
+            == "manifest"
+        )
 
     # ---- Introspection ------------------------------------------------
 
@@ -206,7 +244,9 @@ class Runtime:
 
         # One driver runs the whole flow: the Op's interpreter coroutine. Leaf or
         # composite, it drives to the first quiescence and surfaces the frontier.
-        run.driver = Driver(self._exec_node(op_cls, input_value))
+        # require_full=True at the root: the run's terminal leaf produces the run
+        # output, so it must emit a real value, not a manifest.
+        run.driver = Driver(self._exec_node(op_cls, input_value, require_full=True))
         return run
 
     def step_complete(self, run_id: str, result: Any) -> dict[str, Any]:
@@ -625,6 +665,7 @@ class Runtime:
         *,
         depth: int = 0,
         caller_execution_id: Optional[str] = None,
+        require_full: bool = True,
     ) -> Any:
         """Run one leaf Op as a sequence of agent *turns*, parking the coroutine
         each turn. A turn ends in one of three outcomes (resolved by the Runtime
@@ -646,6 +687,7 @@ class Runtime:
         req = Dispatch(
             op_cls=node, value=value,
             depth=depth, caller_execution_id=caller_execution_id,
+            require_full_output=require_full,
         )
         while True:
             outcome = await external(req)
@@ -659,6 +701,7 @@ class Runtime:
                     execution_id=req.execution_id, depth=depth,
                     caller_execution_id=caller_execution_id,
                     pending_result={"op_name": outcome.op_name, "output": sub_output},
+                    require_full_output=require_full,
                 )
                 continue
             if isinstance(outcome, NeedResolved):
@@ -667,6 +710,7 @@ class Runtime:
                     execution_id=req.execution_id, depth=depth,
                     caller_execution_id=caller_execution_id,
                     need_supplemental=outcome.supplemental,
+                    require_full_output=require_full,
                 )
                 continue
             return outcome
@@ -684,12 +728,17 @@ class Runtime:
         may itself make dynamic calls); a composite callee runs its `body` as a
         sub-flow in the *same* run (shared stores), its leaves dispatching through
         the normal frontier."""
+        # A subroutine's output is an explicit deliverable injected into the
+        # caller's next prompt, so it must be the real value (require_full=True),
+        # never a manifest.
         if op_cls.is_leaf():
             return await self._run_leaf(
                 op_cls, value, depth=depth, caller_execution_id=caller_execution_id,
+                require_full=True,
             )
         return await self._exec_node(
             op_cls.body, value, depth=depth, caller_execution_id=caller_execution_id,
+            require_full=True,
         )
 
     async def _exec_node(
@@ -699,6 +748,7 @@ class Runtime:
         *,
         depth: int = 0,
         caller_execution_id: Optional[str] = None,
+        require_full: bool = True,
     ) -> Any:
         """Recursive interpreter for a flow node — the whole runtime.
 
@@ -706,27 +756,48 @@ class Runtime:
         a `_run_leaf` turn-loop; all composition (sequence, branch_on, gather,
         loop, composite Ops) is handled by Python's own recursion plus the
         Driver's `fork`. `depth`/`caller_execution_id` thread the dynamic-call
-        chain through composite callees (incremented only at `_exec_invoke`)."""
+        chain through composite callees (incremented only at `_exec_invoke`).
+
+        `require_full` carries whether *this* node's output is consumed in-band
+        (by a branch/loop, or as the run's terminal output) versus only by a
+        downstream agent. It is propagated to each leaf so the manifest output
+        contract can lighten only the outputs nobody reads directly."""
         kw = {"depth": depth, "caller_execution_id": caller_execution_id}
 
         # Leaf or composition Op.
         if isinstance(node, type) and issubclass(node, Op):
             if node.is_leaf():
-                return await self._run_leaf(node, value, **kw)
-            return await self._exec_node(node.body, value, **kw)
+                return await self._run_leaf(node, value, require_full=require_full, **kw)
+            return await self._exec_node(node.body, value, require_full=require_full, **kw)
 
         if isinstance(node, Sequence):
             out = value
-            for step in node.steps:
-                out = await self._exec_node(step, out, **kw)
+            steps = node.steps
+            last = len(steps) - 1
+            for i, step in enumerate(steps):
+                # The terminal step inherits this sequence's consumer; an
+                # intermediate step feeds the next step (agent-consumed → a
+                # manifest suffices) unless that successor consumes the value
+                # in-band (branch_on/loop), which needs the real value.
+                step_full = require_full if i == last else _consumes_in_band(steps[i + 1])
+                out = await self._exec_node(step, out, require_full=step_full, **kw)
             return out
 
         if isinstance(node, BranchOn):
             arm = self._resolve_branch(node, value)  # raises RuntimeError_ on bad key
-            return await self._exec_node(arm, value, **kw)
+            return await self._exec_node(arm, value, require_full=require_full, **kw)
 
         if isinstance(node, Gather):
-            return await fork([self._exec_node(b, value, **kw) for b in node.branches])
+            # A gather exists to collect N branch deliverables for a join that,
+            # by construction, needs all of them — so each branch's *deliverable*
+            # (its terminal output) stays full regardless of the manifest
+            # contract; a manifest there would just force the join to pull every
+            # branch back. Branch-*internal* intermediate steps still lighten:
+            # require_full=True only reaches each branch subtree's terminal leaf.
+            return await fork([
+                self._exec_node(b, value, require_full=True, **kw)
+                for b in node.branches
+            ])
 
         if isinstance(node, Loop):
             body = node.body
@@ -735,7 +806,9 @@ class Runtime:
             out = value
             iterations = 0
             while True:
-                out = await self._exec_node(body, out, **kw)
+                # The body's output feeds until() and the next iteration's input
+                # (the accumulator) — always consumed in-band, never a manifest.
+                out = await self._exec_node(body, out, require_full=True, **kw)
                 iterations += 1
                 try:
                     done = bool(node.until(out))
@@ -829,6 +902,8 @@ class Runtime:
                 pending_subroutine_result=dispatch.pending_result,
                 need_supplemental=dispatch.need_supplemental,
                 state_manager=self._state_managers.get(run.id),
+                manifest_mode=self._manifest_mode,
+                require_full_output=dispatch.require_full_output,
             )
             agent_configs.append(
                 {k: v for k, v in config.items() if not k.startswith("_")}

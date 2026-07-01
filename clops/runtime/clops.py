@@ -54,6 +54,7 @@ class ClopsConfig:
     """Parsed contents of a ``.clops`` file."""
     entries: list[LibraryEntry] = field(default_factory=list)
     constants: dict[str, str] = field(default_factory=dict)
+    settings: dict[str, str] = field(default_factory=dict)
 
     @property
     def libraries(self) -> list[str]:
@@ -92,6 +93,8 @@ def read_clops_config(project_dir: Path) -> ClopsConfig:
 
     Lines before any ``[section]`` header are library entries.
     The ``[constants]`` section contains ``key = value`` pairs.
+    The ``[runtime]`` section contains ``key = value`` runtime settings
+    (e.g. ``output_contract = manifest``).
     Comments (``#``) and blank lines are ignored everywhere.
     """
     clops_path = project_dir / CLOPS_FILENAME
@@ -100,6 +103,7 @@ def read_clops_config(project_dir: Path) -> ClopsConfig:
 
     entries: list[LibraryEntry] = []
     constants: dict[str, str] = {}
+    settings: dict[str, str] = {}
     current_section: str | None = None
 
     for line in clops_path.read_text().splitlines():
@@ -118,5 +122,9 @@ def read_clops_config(project_dir: Path) -> ClopsConfig:
             if "=" in stripped:
                 key, _, value = stripped.partition("=")
                 constants[key.strip()] = value.strip()
+        elif current_section == "runtime":
+            if "=" in stripped:
+                key, _, value = stripped.partition("=")
+                settings[key.strip()] = value.strip()
 
-    return ClopsConfig(entries=entries, constants=constants)
+    return ClopsConfig(entries=entries, constants=constants, settings=settings)

@@ -263,6 +263,31 @@ def test_read_clops_backwards_compat(tmp_path):
     assert libs == ["my_ops"]
 
 
+# ---- .clops [runtime] section ----------------------------------------
+
+
+def test_read_clops_config_settings_default_empty(tmp_path):
+    (tmp_path / CLOPS_FILENAME).write_text("my_ops\n")
+    cfg = read_clops_config(tmp_path)
+    assert cfg.settings == {}
+
+
+def test_read_clops_config_parses_runtime_section(tmp_path):
+    (tmp_path / CLOPS_FILENAME).write_text(
+        "my_ops\n\n"
+        "[runtime]\n"
+        "# lighten complete() to a one-line manifest\n"
+        "output_contract = manifest\n"
+        "\n"
+        "[constants]\n"
+        "user_id = wes\n"
+    )
+    cfg = read_clops_config(tmp_path)
+    assert cfg.libraries == ["my_ops"]
+    assert cfg.settings == {"output_contract": "manifest"}
+    assert cfg.constants == {"user_id": "wes"}
+
+
 # ---- module @ source syntax ------------------------------------------
 
 

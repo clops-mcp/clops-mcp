@@ -519,6 +519,7 @@ def build_server_from_argv(argv: list[str]) -> FlowServer:
     srv = FlowServer(config)
     srv._constants = clops_config.constants
     srv.runtime._project_constants = clops_config.constants
+    srv.runtime._settings = clops_config.settings
     srv.load_library_safe()
     return srv
 
