@@ -53,6 +53,50 @@ def test_read_clops_comments_only(tmp_path):
     assert read_clops(tmp_path) == []
 
 
+# ---- .clops file-or-directory resolution -----------------------------
+
+
+def test_read_clops_config_dir_reads_nested_settings(tmp_path):
+    """A .clops directory reads settings from a nested .clops file."""
+    clops_dir = tmp_path / CLOPS_FILENAME
+    clops_dir.mkdir()
+    (clops_dir / CLOPS_FILENAME).write_text(
+        "my_ops\nshared_utils\n\n"
+        "[runtime]\n"
+        "output_contract = manifest\n"
+    )
+    cfg = read_clops_config(tmp_path)
+    assert cfg.libraries == ["my_ops", "shared_utils"]
+    assert cfg.settings == {"output_contract": "manifest"}
+
+
+def test_read_clops_config_file_unchanged(tmp_path):
+    """A plain .clops file behaves exactly as before."""
+    (tmp_path / CLOPS_FILENAME).write_text(
+        "my_ops\n\n[runtime]\noutput_contract = manifest\n"
+    )
+    cfg = read_clops_config(tmp_path)
+    assert cfg.libraries == ["my_ops"]
+    assert cfg.settings == {"output_contract": "manifest"}
+
+
+def test_read_clops_config_dir_without_nested_file_is_empty(tmp_path):
+    """A .clops directory with no nested settings file yields an empty config."""
+    (tmp_path / CLOPS_FILENAME).mkdir()
+    cfg = read_clops_config(tmp_path)
+    assert cfg.libraries == []
+    assert cfg.constants == {}
+    assert cfg.settings == {}
+
+
+def test_read_clops_config_neither_exists_is_empty(tmp_path):
+    """Neither a .clops file nor directory yields an empty config."""
+    cfg = read_clops_config(tmp_path)
+    assert cfg.libraries == []
+    assert cfg.constants == {}
+    assert cfg.settings == {}
+
+
 # ---- Multi-library server config ------------------------------------
 
 

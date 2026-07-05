@@ -80,6 +80,21 @@ def _parse_library_line(line: str) -> LibraryEntry:
     return LibraryEntry(module=line)
 
 
+def _resolve_clops_settings_path(project_dir: Path) -> Path | None:
+    """Locate the ``.clops`` settings file within ``project_dir``.
+
+    ``project_dir/.clops`` may be either a plain file (today's behavior) or
+    a directory. If it's a directory, the settings live in a ``.clops`` file
+    nested inside it (``project_dir/.clops/.clops``). Returns the path to the
+    settings file to read, or ``None`` if no settings file exists.
+    """
+    clops_path = project_dir / CLOPS_FILENAME
+    if clops_path.is_dir():
+        nested = clops_path / CLOPS_FILENAME
+        return nested if nested.is_file() else None
+    return clops_path if clops_path.is_file() else None
+
+
 def read_clops(project_dir: Path) -> list[str]:
     """Read library import paths from a ``.clops`` file.
 
@@ -102,9 +117,13 @@ def read_clops_config(project_dir: Path) -> ClopsConfig:
     captured verbatim (blank lines and ``#`` markdown headings are
     content, not comments) until the next ``[section]`` header.
     Comments (``#``) and blank lines are ignored in every other section.
+
+    The ``.clops`` entry in ``project_dir`` may be a plain file (read
+    directly) or a directory (settings are read from a ``.clops`` file
+    nested inside it). Returns an empty config when no settings file exists.
     """
-    clops_path = project_dir / CLOPS_FILENAME
-    if not clops_path.exists():
+    clops_path = _resolve_clops_settings_path(project_dir)
+    if clops_path is None:
         return ClopsConfig()
 
     entries: list[LibraryEntry] = []
