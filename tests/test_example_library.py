@@ -12,8 +12,9 @@ def test_example_library_registers_expected_ops():
     check_library("examples.my_company")
     from clops.registry import registry
 
-    names = set(registry.ops().keys())
-    assert {"ClassifyIntent", "DraftResponse", "HandleSupport"} <= names
+    # Keys are qualified paths now; bare names resolve via the registry.
+    for bare in ("ClassifyIntent", "DraftResponse", "HandleSupport"):
+        assert registry.op(bare) is not None
 
 
 def test_handle_support_is_composition():
