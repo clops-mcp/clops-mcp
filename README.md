@@ -55,7 +55,9 @@ class ManageProject(Op):
 ## Install
 
 clops runs via `uvx` — nothing needs to live on your `PATH`. The distribution is
-**`clops-mcp`**; the import package and the CLI are both `clops`.
+**`clops-mcp`**; the import package and the CLI are both `clops`. Mind the
+difference: `clops` on PyPI is an unrelated project, so `pip install clops`
+gets you somebody else's package. Always install `clops-mcp`.
 
 > **Not on PyPI yet.** `clops-mcp` hasn't been published, so the GitHub install
 > below is the one that works today. The PyPI commands are recorded here so

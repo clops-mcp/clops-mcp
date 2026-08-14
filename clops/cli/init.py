@@ -15,9 +15,12 @@ globally. Pass `--no-skill` to skip the skill copy if you rely on the plugin.)
 
 What `init` does NOT do:
     - Touch authoring — this is a user-mode install. Author mode is just
-      `pip install clops` in a Python repo.
+      `pip install clops-mcp` in a Python repo.
     - Install clops itself. It assumes you've done that already
-      (e.g. `uv tool install clops`).
+      (e.g. `uv tool install clops-mcp`).
+
+    Note the distribution name: `clops` on PyPI is an unrelated project, so
+    `pip install clops` installs somebody else's package. Always `clops-mcp`.
 """
 
 from __future__ import annotations
