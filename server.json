@@ -1,6 +1,6 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-07-09/server.schema.json",
-  "name": "com.clops/clops",
+  "name": "io.github.wesley-harding/clops-mcp",
   "description": "Runtime for LLM-bodied functions (Ops). Configure libraries in a .clops file.",
   "status": "active",
   "repository": {
