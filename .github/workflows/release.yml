@@ -17,8 +17,10 @@ name: Release
 #   See https://docs.pypi.org/trusted-publishers/
 #
 # Token fallback (if you don't use trusted publishing): add a PYPI_API_TOKEN
-# repo secret and replace the `uv publish` step with:
+# repo secret and replace the whole `uv publish` command with:
 #   run: uv publish --token "${{ secrets.PYPI_API_TOKEN }}"
+# (drop --trusted-publishing always along with it — that flag is what makes a
+# missing OIDC config fail loudly instead of silently looking for a token.)
 
 on:
   push:
@@ -55,13 +57,51 @@ jobs:
       - name: Build sdist + wheel
         run: uv build
 
+      # The tests above run against uv.lock. That is exactly how the mcp 2.0.0
+      # break slipped through: the lockfile pinned 1.27.0, so nobody here saw
+      # what a fresh `pip install` resolves. This step installs the built wheel
+      # with no lockfile at all — the resolution a PyPI user actually gets —
+      # and exercises the entry points. It runs before publishing, on purpose.
+      - name: Smoke-test the built wheel against an unlocked resolution
+        run: |
+          uv venv /tmp/smoke --python 3.12
+          VIRTUAL_ENV=/tmp/smoke uv pip install --no-cache dist/*.whl
+          /tmp/smoke/bin/python - <<'PY'
+          import importlib.metadata as md
+          import clops.runtime.mcp_server  # constructs against the resolved mcp
+          import clops.cli.init as init
+          print("mcp resolved to", md.version("mcp"))
+          assert init.CLOPS_EXECUTOR_SRC.exists(), "packaged agent .md missing from wheel"
+          assert init.SKILL_SRC.exists(), "packaged skill .md missing from wheel"
+          PY
+          /tmp/smoke/bin/clops --help > /dev/null
+          # NB: don't invoke clops-server/clops-hook here — they have no --help
+          # path; they'd start the stdio server and hang the job. Assert the
+          # console scripts were installed instead.
+          test -x /tmp/smoke/bin/clops-server
+          test -x /tmp/smoke/bin/clops-hook
+
       # clops-mcp is not on PyPI yet. Publishing is gated on the `PUBLISH_PYPI`
       # repo variable so tag releases don't fail on the missing trusted
       # publisher — set it to "true" (Settings → Secrets and variables →
       # Actions → Variables) once the PyPI trusted publisher is configured.
       - name: Publish to PyPI
         if: ${{ vars.PUBLISH_PYPI == 'true' }}
-        run: uv publish
+        # --trusted-publishing always: fail loudly if OIDC isn't configured
+        # rather than falling back to hunting for credentials that aren't there.
+        # --check-url: makes a re-run after a partial failure skip files already
+        # uploaded, instead of dying on "file already exists".
+        run: |
+          uv publish \
+            --trusted-publishing always \
+            --check-url https://pypi.org/simple/clops-mcp/
+
+      # Without this, forgetting to set PUBLISH_PYPI produces a green run and a
+      # GitHub release with nothing on PyPI — a silent no-op that looks like success.
+      - name: Warn that PyPI publishing was skipped
+        if: ${{ vars.PUBLISH_PYPI != 'true' }}
+        run: |
+          echo "::warning::PUBLISH_PYPI is not 'true' — built ${GITHUB_REF_NAME} but did NOT publish to PyPI."
 
       - name: Create GitHub release
         env:

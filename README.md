@@ -54,11 +54,20 @@ class ManageProject(Op):
 
 ## Install
 
-clops runs via `uvx` — nothing needs to live on your `PATH`. It isn't on PyPI yet, so install it straight from this GitHub repo (the distribution will be **`clops-mcp`**; the import and CLI are still `clops`). Access requires a clone/read grant on the repo — `uvx` uses your configured git credentials.
+clops runs via `uvx` — nothing needs to live on your `PATH`. The distribution is
+**`clops-mcp`**; the import package and the CLI are both `clops`.
+
+> **Not on PyPI yet.** `clops-mcp` hasn't been published, so the GitHub install
+> below is the one that works today. The PyPI commands are recorded here so
+> they're ready the moment it ships — until then they will fail to resolve.
 
 ```bash
-# Run the CLI without installing — uvx fetches and caches on demand:
+# Today — install from GitHub (uvx uses your configured git credentials):
 uvx --from git+https://github.com/wesley-harding/clops clops --help
+
+# Once clops-mcp is published:
+uvx --from clops-mcp clops --help          # run without installing
+uv tool install clops-mcp                  # or put `clops` on your PATH
 ```
 
 > Prefer SSH (or want to pin a tag)? Set `CLOPS_INSTALL_SPEC` before running `clops init`, e.g. `export CLOPS_INSTALL_SPEC='git+ssh://git@github.com/wesley-harding/clops'` — `init` bakes it into the generated `.mcp.json` and hook.
@@ -90,7 +99,7 @@ uv sync
 
 ## Create a project
 
-> Tip: for a persistent `clops` on your `PATH`, run `uv tool install git+https://github.com/wesley-harding/clops`. Otherwise prefix any command with `uvx --from git+https://github.com/wesley-harding/clops` (e.g. `uvx --from git+https://github.com/wesley-harding/clops clops new-library my_ops`).
+> Tip: for a persistent `clops` on your `PATH`, run `uv tool install git+https://github.com/wesley-harding/clops` (after publish: `uv tool install clops-mcp`). Otherwise prefix any command with `uvx --from git+https://github.com/wesley-harding/clops` (e.g. `uvx --from git+https://github.com/wesley-harding/clops clops new-library my_ops`).
 
 ```bash
 # Scaffold a new library
@@ -120,14 +129,16 @@ database = staging
 
 ## Documentation
 
+Links are absolute so they also resolve from the PyPI project page.
+
 | Doc | What it covers |
 |-----|---------------|
-| [Philosophy](docs/philosophy.md) | How to think about decomposing work into Ops |
-| [Concepts](docs/concepts.md) | The five primitives: Concept, Snippet, Tool, Store, Op |
-| [Patterns](docs/patterns.md) | Composition patterns and when to use each |
-| [Examples](docs/examples.md) | Eight worked examples from simple to complex |
-| [Combinators](docs/combinators.md) | sequence, branch_on, gather, loop reference |
-| [Authoring Spec](authoring-spec.md) | Full authoring reference |
+| [Philosophy](https://github.com/wesley-harding/clops/blob/main/docs/philosophy.md) | How to think about decomposing work into Ops |
+| [Concepts](https://github.com/wesley-harding/clops/blob/main/docs/concepts.md) | The five primitives: Concept, Snippet, Tool, Store, Op |
+| [Patterns](https://github.com/wesley-harding/clops/blob/main/docs/patterns.md) | Composition patterns and when to use each |
+| [Examples](https://github.com/wesley-harding/clops/blob/main/docs/examples.md) | Eight worked examples from simple to complex |
+| [Combinators](https://github.com/wesley-harding/clops/blob/main/docs/combinators.md) | sequence, branch_on, gather, loop reference |
+| [Authoring Spec](https://github.com/wesley-harding/clops/blob/main/authoring-spec.md) | Full authoring reference |
 
 ## Skills
 
