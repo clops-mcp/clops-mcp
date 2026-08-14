@@ -1,0 +1,29 @@
+# What goes in the sdist beyond the `clops` package itself.
+#
+# The sdist ships the test suite, and two tests lint/show `examples.my_company`
+# — so the example library has to come along or `pytest` on an unpacked sdist
+# fails. `examples` is deliberately NOT an installed package (see
+# pyproject.toml); grafting it here puts it in the sdist only, never the wheel.
+
+# setuptools' legacy sdist default only auto-globs `test*.py`, which silently
+# dropped `tests/conftest.py` and `tests/__init__.py` — so the sdist shipped a
+# test suite that could not pass (40 failures from an uncleared registry).
+# Graft the directory so what ships is what runs.
+graft tests
+
+graft examples
+graft docs
+include QUICKSTART.md
+include authoring-spec.md
+include server.json
+
+# Never ship build/scratch artifacts.
+global-exclude *.py[cod]
+global-exclude .DS_Store
+prune **/__pycache__
+prune .claude
+prune .github
+prune landing-page
+prune smoke-tests
+prune spikes
+prune code_review
