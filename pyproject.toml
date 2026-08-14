@@ -10,7 +10,13 @@ version = "0.3.0"
 description = "A runtime for LLM-bodied functions, exposed to Claude Code via MCP."
 requires-python = ">=3.11"
 dependencies = [
-    "mcp>=1.0",
+    # Upper bound is load-bearing: mcp 2.0.0 (2026-07-28) removed the low-level
+    # `Server.list_tools` decorator API that runtime/mcp_server.py registers
+    # with, so 2.x fails at server construction. uv.lock pins 1.27.0, which is
+    # why `uv sync` developers never saw it — but a fresh `uvx --from git+...`
+    # resolves from this file and picked up the break. Revisit as a deliberate
+    # migration, not a float.
+    "mcp>=1.27,<2",
     "tinydb>=4.8",
 ]
 
