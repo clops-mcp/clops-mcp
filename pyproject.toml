@@ -1,5 +1,6 @@
 [build-system]
-requires = ["setuptools>=68", "wheel"]
+# setuptools>=77 for PEP 639 `license`/`license-files` (SPDX expression form).
+requires = ["setuptools>=77", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -11,12 +12,8 @@ description = "A runtime for LLM-bodied functions, exposed to Claude Code via MC
 readme = "README.md"
 requires-python = ">=3.11"
 authors = [{ name = "Wesley Harding" }]
-# TODO(license): no LICENSE file exists in this repo yet. Pick one before
-# publishing and then uncomment both lines below (SPDX expression + the file
-# to ship in the sdist/wheel). PyPI accepts a release without a license, but
-# "no license" legally means all rights reserved — nobody may use it.
-#   license = "MIT"
-#   license-files = ["LICENSE"]
+license = "Apache-2.0"
+license-files = ["LICENSE"]
 keywords = [
     "mcp",
     "model-context-protocol",
