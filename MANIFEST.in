@@ -38,3 +38,6 @@ prune landing-page
 prune smoke-tests
 prune spikes
 prune code_review
+# Deployment examples are for people reading the repo, not for people who
+# `pip install clops-mcp`.
+prune deploy

@@ -8,3 +8,11 @@ dist/
 build/
 .venv/
 .claude/.clops/
+
+# Agent scratch space — full repo copies, not source.
+.claude/worktrees/
+
+# Real secrets for the deployment examples. `.env.example` is the tracked one.
+.env
+.env.secrets
+deploy/**/.env

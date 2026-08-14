@@ -1,0 +1,44 @@
+# One clops agent, reachable over HTTP.
+#
+# clops speaks stdio and nothing else (clops/runtime/mcp_server.py). This image
+# pairs it with `mcpgateway.translate`, which runs the stdio process and fronts
+# it with an HTTP endpoint — so no clops source changes are needed to deploy it.
+#
+# Build one image per agent, or one image and vary CLOPS_LIBRARY per container.
+
+FROM python:3.12-slim
+
+# clops-mcp is not on PyPI yet, so install from the repo. Once published:
+#   --build-arg CLOPS_SPEC=clops-mcp==0.3.0
+# Note the repo must be public (or the build must carry credentials) for this
+# to resolve.
+ARG CLOPS_SPEC=git+https://github.com/wesley-harding/clops
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends git \
+    && rm -rf /var/lib/apt/lists/*
+
+# `mcp-contextforge-gateway` is installed here only for its `translate` module,
+# which is the stdio→HTTP bridge. The gateway itself runs in its own container.
+RUN pip install --no-cache-dir mcp-contextforge-gateway \
+    && pip install --no-cache-dir "${CLOPS_SPEC}"
+
+# Which Op library this agent exposes. This one line is the difference between
+# a support agent and a review agent — see README §"Adding a second agent".
+# `clops.stdlib.business_designer` ships inside the clops wheel, so the default
+# needs no extra files.
+ENV CLOPS_LIBRARY=clops.stdlib.business_designer
+ENV CLOPS_PORT=9000
+
+EXPOSE 9000
+
+# --host is load-bearing: translate defaults to 127.0.0.1, which inside a
+# container means nothing outside it can connect.
+# --expose-streamable-http serves /mcp; --expose-sse serves /sse and /message.
+# The gateway registers against /sse.
+CMD python -m mcpgateway.translate \
+      --stdio "clops-server --library ${CLOPS_LIBRARY}" \
+      --expose-sse \
+      --expose-streamable-http \
+      --host 0.0.0.0 \
+      --port ${CLOPS_PORT}

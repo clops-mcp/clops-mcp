@@ -1,0 +1,54 @@
+# Minimal clops-behind-a-gateway stack.
+#
+# Deliberately NOT the full ContextForge compose (Postgres + Redis + nginx +
+# pgAdmin). Two containers is enough to prove the shape, and SQLite is a
+# documented single-node configuration. Add Postgres/Redis when you run more
+# than one gateway replica.
+#
+#   gateway        ContextForge — the only thing exposed to the host
+#   clops-support  one clops agent, reachable only on the internal network
+
+services:
+  gateway:
+    image: ghcr.io/ibm/mcp-context-forge:latest
+    ports:
+      - "4444:4444"
+    environment:
+      # Both are required — the gateway refuses to start without them.
+      # Generate with: python3 -m mcpgateway.scripts.init_secrets
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:?set JWT_SECRET_KEY in .env}
+      AUTH_ENCRYPTION_SECRET: ${AUTH_ENCRYPTION_SECRET:?set AUTH_ENCRYPTION_SECRET in .env}
+      PLATFORM_ADMIN_EMAIL: ${PLATFORM_ADMIN_EMAIL:-admin@example.com}
+      PLATFORM_ADMIN_PASSWORD: ${PLATFORM_ADMIN_PASSWORD:?set PLATFORM_ADMIN_PASSWORD in .env}
+      MCPGATEWAY_UI_ENABLED: "true"
+      MCPGATEWAY_ADMIN_API_ENABLED: "true"
+      HOST: "0.0.0.0"
+      PORT: "4444"
+    volumes:
+      # SQLite lives here. Without this, every restart forgets the servers you
+      # registered.
+      - gateway-data:/app/data
+    depends_on:
+      - clops-support
+    restart: unless-stopped
+
+  clops-support:
+    build:
+      context: .
+      dockerfile: Dockerfile.clops
+      args:
+        # Point at a tag/branch, or `clops-mcp==0.3.0` once published.
+        CLOPS_SPEC: ${CLOPS_SPEC:-git+https://github.com/wesley-harding/clops}
+    environment:
+      CLOPS_LIBRARY: ${CLOPS_LIBRARY:-clops.stdlib.business_designer}
+      CLOPS_PORT: "9000"
+    # No `ports:` on purpose. The agent is reachable only by the gateway, over
+    # the compose network, as http://clops-support:9000. Publishing it to the
+    # host would put an unauthenticated write path into run state on your
+    # network — see docs/deployment-research.md §2.
+    expose:
+      - "9000"
+    restart: unless-stopped
+
+volumes:
+  gateway-data:
