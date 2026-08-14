@@ -76,7 +76,10 @@ def test_scaffold_dotted_path_creates_expected_tree(tmp_path, capsys):
     pyproject = (root / "pyproject.toml").read_text()
     assert 'name = "my-company-support-ops"' in pyproject
     assert 'include = ["my_company*"]' in pyproject
-    assert 'dependencies = ["clops"]' in pyproject
+    # `clops-mcp`, not `clops` — the latter is an unrelated project on PyPI, so
+    # scaffolding it would make every generated library depend on a stranger's
+    # package.
+    assert 'dependencies = ["clops-mcp"]' in pyproject
     assert 'requires-python = ">=3.11"' in pyproject
 
 

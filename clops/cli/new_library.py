@@ -74,7 +74,7 @@ name = "{dist_name}"
 version = "0.0.1"
 description = "A clops Op library."
 requires-python = ">=3.11"
-dependencies = ["clops"]
+dependencies = ["clops-mcp"]
 
 [tool.setuptools.packages.find]
 where = ["."]
