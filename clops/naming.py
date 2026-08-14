@@ -42,10 +42,35 @@ def validate_server_name(name: str) -> str:
     return name
 
 
+def qualify_server_name(name: str) -> str:
+    """Guarantee ``clops`` appears in the server name.
+
+    White-labelling is a naming concern, not an architectural one: a hosted
+    instance can be called whatever the deployment wants, but the name should
+    still say what runtime is underneath. Every clops-derived server is then
+    recognisable — to a person reading a tool list, and to a grep — as speaking
+    the same protocol, however many are installed side by side.
+
+    So the caller supplies only the distinguishing part and we add the hint:
+
+        acme-dev   -> clops-acme-dev
+        support        -> clops-support
+        clops          -> clops              (already says it)
+        clops-support  -> clops-support      (idempotent; no double prefix)
+
+    Idempotent, so a name can be qualified by `clops init` and re-qualified by
+    the server it launches without drifting.
+    """
+    name = validate_server_name(name)
+    if "clops" in name.lower():
+        return name
+    return f"{DEFAULT_SERVER_NAME}-{name}"
+
+
 def set_server_name(name: str) -> None:
     """Set the process-wide server name. Call once, at startup."""
     global _server_name
-    _server_name = validate_server_name(name)
+    _server_name = qualify_server_name(name)
 
 
 def server_name() -> str:

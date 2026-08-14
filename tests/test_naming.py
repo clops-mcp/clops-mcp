@@ -52,6 +52,38 @@ def test_name_is_stripped():
     assert naming.validate_server_name("  clops  ") == "clops"
 
 
+# ---- auto-qualification ----------------------------------------------
+#
+# Every clops-derived server keeps `clops` in its name, so a person reading a
+# tool list (or a grep) can tell they all speak the same protocol.
+
+
+@pytest.mark.parametrize(
+    "given, expected",
+    [
+        ("acme-dev", "clops-acme-dev"),   # the hint gets added
+        ("support", "clops-support"),
+        ("clops", "clops"),                        # already says it
+        ("clops-support", "clops-support"),        # no double prefix
+        ("my-clops-thing", "my-clops-thing"),      # says it anywhere, leave alone
+        ("CLOPS-Prod", "CLOPS-Prod"),              # case-insensitive check
+    ],
+)
+def test_qualify_adds_the_hint_without_doubling(given, expected):
+    assert naming.qualify_server_name(given) == expected
+
+
+def test_qualify_is_idempotent():
+    """init qualifies, then the server it launches qualifies again — must not drift."""
+    once = naming.qualify_server_name("acme-dev")
+    assert naming.qualify_server_name(once) == once
+
+
+def test_set_server_name_qualifies():
+    naming.set_server_name("acme-dev")
+    assert naming.server_name() == "clops-acme-dev"
+
+
 # ---- the prefix itself -----------------------------------------------
 
 
@@ -61,8 +93,8 @@ def test_default_prefix():
 
 def test_prefix_follows_configured_name():
     naming.set_server_name("acme-dev")
-    assert naming.tool("complete") == "mcp__acme-dev__complete"
-    assert naming.tool("need") == "mcp__acme-dev__need"
+    assert naming.tool("complete") == "mcp__clops-acme-dev__complete"
+    assert naming.tool("need") == "mcp__clops-acme-dev__need"
 
 
 def test_set_server_name_rejects_invalid():
@@ -81,8 +113,10 @@ def test_hook_block_reason_follows_server_name():
 
     naming.set_server_name("acme-dev")
     reason = block_reason()
-    assert "mcp__acme-dev__complete" in reason
-    assert "mcp__acme-dev__need" in reason
+    assert "mcp__clops-acme-dev__complete" in reason
+    assert "mcp__clops-acme-dev__need" in reason
+    # The bare default must be gone, or a renamed server still names the
+    # wrong tool. (`mcp__clops-acme-dev__` does not contain `mcp__clops__`.)
     assert "mcp__clops__" not in reason
 
 
@@ -110,8 +144,8 @@ def test_dispatch_prompt_follows_server_name():
     naming.set_server_name("acme-dev")
     prompt = render_prompt(DoWork, {"goal": "x"}, execution_id="exec_123")
 
-    assert "mcp__acme-dev__complete" in prompt
-    assert "mcp__acme-dev__need" in prompt
+    assert "mcp__clops-acme-dev__complete" in prompt
+    assert "mcp__clops-acme-dev__need" in prompt
     assert "mcp__clops__" not in prompt
 
 
@@ -125,10 +159,12 @@ def test_build_mcp_json_uses_custom_name_consistently():
 
     mcp = build_mcp_json(["my_ops"], [], "acme-dev")
 
-    assert list(mcp["mcpServers"]) == ["acme-dev"]
-    args = mcp["mcpServers"]["acme-dev"]["args"]
+    assert list(mcp["mcpServers"]) == ["clops-acme-dev"]
+    args = mcp["mcpServers"]["clops-acme-dev"]["args"]
     assert "--server-name" in args
-    assert args[args.index("--server-name") + 1] == "acme-dev"
+    # The qualified form is what's passed through, so the server doesn't have to
+    # re-derive it and can't disagree with the key above.
+    assert args[args.index("--server-name") + 1] == "clops-acme-dev"
 
 
 def test_build_mcp_json_default_omits_the_flag():
@@ -153,5 +189,5 @@ def test_server_argv_sets_the_name():
     from clops.runtime.mcp_server import build_server_from_argv
 
     build_server_from_argv(["--library", "examples.my_company", "--server-name", "acme-dev"])
-    assert naming.server_name() == "acme-dev"
-    assert naming.tool("complete") == "mcp__acme-dev__complete"
+    assert naming.server_name() == "clops-acme-dev"
+    assert naming.tool("complete") == "mcp__clops-acme-dev__complete"

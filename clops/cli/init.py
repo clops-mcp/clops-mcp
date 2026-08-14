@@ -105,7 +105,7 @@ def build_mcp_json(
     be on PATH. Library sources are pulled into the same run env via repeated
     ``--with`` flags.
     """
-    server_name = naming.validate_server_name(server_name)
+    server_name = naming.qualify_server_name(server_name)
     args = ["--from", install_spec()]
     for src in sources:
         args.extend(["--with", src])
@@ -305,7 +305,9 @@ def add_arguments(parser) -> None:
         help=(
             "Name for the MCP server in .mcp.json, which sets the tool prefix "
             "(mcp__<name>__complete). Give a hosted clops a distinct name so it "
-            f"doesn't collide with a local one. Default: {naming.DEFAULT_SERVER_NAME}."
+            "doesn't collide with a local one. 'clops' is added if absent, so "
+            "--server-name acme-dev becomes clops-acme-dev — every "
+            f"clops server stays recognisable. Default: {naming.DEFAULT_SERVER_NAME}."
         ),
     )
 
