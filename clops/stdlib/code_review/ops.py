@@ -2,7 +2,7 @@
 
 from clops import Op, SnippetRole, sequence
 
-from code_review.concepts import (
+from clops.stdlib.code_review.concepts import (
     Diff,
     ScopedFiles,
     CodebaseContext,
@@ -15,7 +15,7 @@ from code_review.concepts import (
     StructuredReport,
     ExecutiveSummary,
 )
-from code_review.snippets import severity_guidelines, confidence_guidelines
+from clops.stdlib.code_review.snippets import severity_guidelines, confidence_guidelines
 
 
 # --- Step 1: Determine what's in scope ---
