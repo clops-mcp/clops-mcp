@@ -19,6 +19,7 @@ from __future__ import annotations
 import json
 import os
 import socket
+import sys
 import threading
 from pathlib import Path
 from typing import Any
@@ -85,20 +86,69 @@ class HookServer:
         self._thread: threading.Thread | None = None
         self._stop_event = threading.Event()
 
-    def start(self) -> None:
-        self.socket_path.parent.mkdir(parents=True, exist_ok=True)
+    def start(self) -> bool:
+        """Bind and serve. Returns False if the socket could not be bound.
+
+        Best-effort by design. The hook is an *enforcement* mechanism, not a
+        transport: `clops-hook` already fails open on every error
+        (`clops/cli/hook.py`), so a server without a bound socket still runs
+        flows correctly — it just can't catch a subagent that ends its turn
+        without calling complete or need.
+
+        Failing to bind must therefore not take the whole server down with it.
+        Two ways this happens in practice:
+
+        - **Path length.** The socket path is derived from the project
+          directory, and AF_UNIX paths cap near 104 bytes on macOS, so a
+          deeply-nested project raises `OSError: AF_UNIX path too long`.
+        - **Containers and read-only mounts**, where the project directory
+          isn't writable.
+
+        Both used to be an unhandled crash at startup.
+        """
+        try:
+            self.socket_path.parent.mkdir(parents=True, exist_ok=True)
+        except OSError as exc:
+            self._warn_disabled(f"cannot create {self.socket_path.parent}: {exc}")
+            return False
+
         if self.socket_path.exists():
             try:
                 self.socket_path.unlink()
             except OSError:
                 pass
 
-        self._sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-        self._sock.bind(str(self.socket_path))
+        sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        try:
+            sock.bind(str(self.socket_path))
+        except OSError as exc:
+            sock.close()
+            detail = f"{exc}"
+            if "too long" in detail:
+                detail += (
+                    f" (path is {len(str(self.socket_path))} bytes; AF_UNIX caps "
+                    "near 104 on macOS — use a shorter project path, or set "
+                    "CLOPS_HOOK_SOCKET to somewhere short)"
+                )
+            self._warn_disabled(detail)
+            return False
+
+        self._sock = sock
         self._sock.listen(8)
         self._sock.settimeout(0.5)
         self._thread = threading.Thread(target=self._serve, daemon=True)
         self._thread.start()
+        return True
+
+    @staticmethod
+    def _warn_disabled(reason: str) -> None:
+        # stderr, not stdout: stdout is the MCP JSON-RPC channel on stdio
+        # transport, and writing anything else there corrupts the protocol.
+        print(
+            f"clops: SubagentStop enforcement disabled — {reason}",
+            file=sys.stderr,
+            flush=True,
+        )
 
     def stop(self) -> None:
         self._stop_event.set()

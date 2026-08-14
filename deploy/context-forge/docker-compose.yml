@@ -42,6 +42,12 @@ services:
     environment:
       CLOPS_LIBRARY: ${CLOPS_LIBRARY:-clops.stdlib.business_designer}
       CLOPS_PORT: "9000"
+      # `mcpgateway.translate` imports mcpgateway.config, which validates these
+      # at import time — so the *bridge* needs them too, not just the gateway.
+      # Found by running it: without these the agent container dies at startup
+      # with SecurityConfigurationError. They must be >= 32 characters.
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:?set JWT_SECRET_KEY in .env}
+      AUTH_ENCRYPTION_SECRET: ${AUTH_ENCRYPTION_SECRET:?set AUTH_ENCRYPTION_SECRET in .env}
     # No `ports:` on purpose. The agent is reachable only by the gateway, over
     # the compose network, as http://clops-support:9000. Publishing it to the
     # host would put an unauthenticated write path into run state on your

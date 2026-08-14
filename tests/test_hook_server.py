@@ -181,3 +181,53 @@ def test_hook_server_tears_down_socket_on_stop(short_tmp, library):
     assert sock_path.exists()
     srv.stop()
     assert not sock_path.exists()
+
+
+# ---- start() degrades instead of crashing --------------------------------
+#
+# The hook is enforcement, not transport: `clops-hook` already fails open on
+# every error, so a server that can't bind still runs flows correctly. It just
+# can't catch a subagent that ends its turn without calling complete or need.
+# Losing the whole server over that is the wrong trade — and it happened for
+# real, both in a deep project path and in a container.
+
+
+def test_start_returns_false_when_path_too_long_instead_of_raising(tmp_path, capsys):
+    """Reproduces `OSError: AF_UNIX path too long`, which used to kill startup.
+
+    macOS caps AF_UNIX paths near 104 bytes, so a deep project directory took
+    the server down at boot with an unhandled OSError.
+    """
+    deep = tmp_path.joinpath(*["a-reasonably-long-directory-name"] * 6)
+    sock = deep / "hook.sock"
+    assert len(str(sock)) > 104, "test needs a path over the AF_UNIX limit"
+
+    server = HookServer(Runtime(), sock)
+    assert server.start() is False
+
+    err = capsys.readouterr().err
+    assert "SubagentStop enforcement disabled" in err
+    assert "too long" in err
+    server.stop()  # must be safe to call after a failed start
+
+
+def test_start_returns_false_when_directory_is_not_creatable(tmp_path, capsys):
+    """The container case: the project directory isn't writable."""
+    blocker = tmp_path / "not-a-dir"
+    blocker.write_text("i am a file")
+
+    server = HookServer(Runtime(), blocker / "sub" / "hook.sock")
+    assert server.start() is False
+    assert "SubagentStop enforcement disabled" in capsys.readouterr().err
+    server.stop()
+
+
+def test_start_returns_true_on_a_normal_path(short_tmp):
+    # `short_tmp`, not pytest's `tmp_path` — on macOS the latter is itself long
+    # enough to trip the AF_UNIX limit, which is why that fixture exists at all.
+    server = HookServer(Runtime(), short_tmp / "hook.sock")
+    try:
+        assert server.start() is True
+        assert (short_tmp / "hook.sock").exists()
+    finally:
+        server.stop()

@@ -18,21 +18,65 @@ else; `mcpgateway.translate` runs it as a subprocess and puts an HTTP endpoint i
 front. That is the whole trick, and it's why this is a deployment artifact rather
 than a feature.
 
-> ### ⚠️ Verified how far, exactly
+> ### Verified how far, exactly
 >
-> The configuration here is built from ContextForge's own documented interfaces,
-> and every flag was checked against its source — notably `translate --host`,
-> which defaults to `127.0.0.1` and would otherwise make the bridge unreachable
-> from outside the container.
+> **The bridge is proven.** `mcpgateway.translate` was run against a real
+> `clops-server`, and an MCP client spoke to it over HTTP end to end:
+> `initialize` returned `"serverInfo":{"name":"clops"}`, `tools/list` returned
+> **all 11 clops tools**, and `tools/call list_processes` returned the library's
+> entry Op. That is the load-bearing claim of this whole directory, and it holds.
 >
-> **It has not been executed end to end.** No Docker daemon was available when it
-> was written. Treat it as a careful first draft: the shape is right, the flags
-> are real, but expect to debug the first run. Please fix this notice once you've
-> run it.
+> **The Docker stack has not been run.** No Docker daemon was available. The
+> compose file validates (`docker compose config`) and the shell script parses,
+> but the containers have never started. Expect to debug the first run.
+>
+> Three things that only showed up by running it, now folded in: `translate`
+> needs the gateway's secrets too, those secrets must be **≥ 32 characters**,
+> and `translate --host` defaults to `127.0.0.1` — which inside a container
+> would have made the bridge unreachable from anywhere.
 
 ---
 
-## Run it
+## Test it without Docker first
+
+Do this before touching the compose stack. It exercises the only genuinely novel
+part — clops over HTTP — in about a minute, and if it fails, nothing about
+Docker is to blame.
+
+```bash
+# a throwaway env with both pieces
+uv venv /tmp/clops-http && VENV=/tmp/clops-http
+uv pip install --python $VENV/bin/python mcp-contextforge-gateway -e .
+
+# secrets are required even for the bridge, and must be >= 32 chars
+export JWT_SECRET_KEY=$(python3 -c "import secrets;print(secrets.token_hex(24))")
+export AUTH_ENCRYPTION_SECRET=$(python3 -c "import secrets;print(secrets.token_hex(24))")
+
+$VENV/bin/python -m mcpgateway.translate \
+  --stdio "$VENV/bin/clops-server --library clops.stdlib.business_designer" \
+  --expose-streamable-http --host 127.0.0.1 --port 9000
+```
+
+In another shell:
+
+```bash
+curl -s -X POST http://127.0.0.1:9000/mcp \
+  -H 'Content-Type: application/json' \
+  -H 'Accept: application/json, text/event-stream' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{
+        "protocolVersion":"2025-06-18","capabilities":{},
+        "clientInfo":{"name":"curl","version":"0"}}}'
+```
+
+Expect `"serverInfo":{"name":"clops",...}`. Then swap the body for
+`{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}` and expect 11 tools.
+
+If that works, clops-over-HTTP works, and anything that fails afterwards is
+Docker or gateway configuration.
+
+---
+
+## Run the stack
 
 ```bash
 cd deploy/context-forge
