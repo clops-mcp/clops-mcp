@@ -4,7 +4,7 @@ name: Release
 #   - verifies the tag matches the pyproject version
 #   - runs the test suite
 #   - builds the sdist + wheel
-#   - publishes clops-ops to PyPI (trusted publishing / OIDC)
+#   - publishes clops-mcp to PyPI (trusted publishing / OIDC)
 #   - creates a GitHub release with generated notes
 #
 # One-time PyPI setup (trusted publishing — no token stored in the repo):
@@ -47,7 +47,7 @@ jobs:
             echo "::error::tag ${GITHUB_REF_NAME} does not match pyproject version ${ver}"
             exit 1
           fi
-          echo "Releasing clops-ops ${ver}"
+          echo "Releasing clops-mcp ${ver}"
 
       - name: Run tests
         run: uv run --extra dev pytest -q
@@ -55,7 +55,7 @@ jobs:
       - name: Build sdist + wheel
         run: uv build
 
-      # clops-ops is not on PyPI yet. Publishing is gated on the `PUBLISH_PYPI`
+      # clops-mcp is not on PyPI yet. Publishing is gated on the `PUBLISH_PYPI`
       # repo variable so tag releases don't fail on the missing trusted
       # publisher — set it to "true" (Settings → Secrets and variables →
       # Actions → Variables) once the PyPI trusted publisher is configured.

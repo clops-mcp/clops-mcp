@@ -40,12 +40,12 @@ SKILL_SRC = PLUGIN_DIR / "skills" / "clops-orchestration" / "SKILL.md"
 
 
 MCP_SERVER_NAME = "clops"
-PYPI_NAME = "clops-ops"
-# clops-ops is not on PyPI yet — the runtime installs straight from the
+PYPI_NAME = "clops-mcp"
+# clops-mcp is not on PyPI yet — the runtime installs straight from the
 # (private) GitHub repo. Override with CLOPS_INSTALL_SPEC to change the source,
 # e.g. an SSH URL (`git+ssh://git@github.com/wesley-harding/clops`), a pinned
 # ref (`git+https://github.com/wesley-harding/clops@v0.2.0`), or the PyPI
-# package (`clops-ops==0.2.0`) once it's published.
+# package (`clops-mcp==0.3.0`) once it's published.
 GIT_REPO = "git+https://github.com/wesley-harding/clops"
 GITIGNORE_LINE = ".claude/.clops/"
 
@@ -53,7 +53,7 @@ GITIGNORE_LINE = ".claude/.clops/"
 def install_spec() -> str:
     """The ``uvx --from`` target for the clops runtime.
 
-    Defaults to the GitHub repo (default branch) since ``clops-ops`` isn't
+    Defaults to the GitHub repo (default branch) since ``clops-mcp`` isn't
     published to PyPI yet. ``CLOPS_INSTALL_SPEC`` overrides it entirely — set it
     to an SSH URL, a pinned ``@<ref>``, or the PyPI spec once published. Using a
     single source keeps a project's generated MCP server + hook on the same
@@ -89,7 +89,7 @@ def build_settings_patch() -> dict:
 def build_mcp_json(libraries: list[str], sources: list[str]) -> dict:
     """Build .mcp.json that runs the clops MCP server via uvx.
 
-    Using ``uvx --from clops-ops`` works regardless of how clops itself was
+    Using ``uvx --from clops-mcp`` works regardless of how clops itself was
     installed (plugin, pip, uv tool install, or not at all) — nothing needs to
     be on PATH. Library sources are pulled into the same run env via repeated
     ``--with`` flags.
@@ -135,7 +135,7 @@ def merge_settings(existing: dict, patch: dict) -> dict:
 
     def _is_clops_hook(cmd: object) -> bool:
         # Match on the `clops-hook` entrypoint, not the exact string, so a
-        # version-pinned re-run (clops-ops==0.1.0 -> ==0.2.0) dedupes instead
+        # version-pinned re-run (clops-mcp==0.1.0 -> ==0.2.0) dedupes instead
         # of stacking a second hook.
         return isinstance(cmd, str) and "clops-hook" in cmd
 

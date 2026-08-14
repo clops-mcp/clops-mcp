@@ -54,7 +54,7 @@ class ManageProject(Op):
 
 ## Install
 
-clops runs via `uvx` — nothing needs to live on your `PATH`. It isn't on PyPI yet, so install it straight from this GitHub repo (the distribution is **`clops-ops`**; the import and CLI are still `clops`). Access requires a clone/read grant on the repo — `uvx` uses your configured git credentials.
+clops runs via `uvx` — nothing needs to live on your `PATH`. It isn't on PyPI yet, so install it straight from this GitHub repo (the distribution will be **`clops-mcp`**; the import and CLI are still `clops`). Access requires a clone/read grant on the repo — `uvx` uses your configured git credentials.
 
 ```bash
 # Run the CLI without installing — uvx fetches and caches on demand:

@@ -52,11 +52,11 @@ def test_install_spec_defaults_to_github_repo(monkeypatch):
 
 
 def test_install_spec_env_override(monkeypatch):
-    monkeypatch.setenv("CLOPS_INSTALL_SPEC", "clops-ops==9.9.9")
-    assert install_spec() == "clops-ops==9.9.9"
+    monkeypatch.setenv("CLOPS_INSTALL_SPEC", "clops-mcp==9.9.9")
+    assert install_spec() == "clops-mcp==9.9.9"
     # And it flows through to the generated MCP server args + hook command.
     server = build_mcp_json(["my_ops"], [])["mcpServers"][MCP_SERVER_NAME]
-    assert server["args"][1] == "clops-ops==9.9.9"
+    assert server["args"][1] == "clops-mcp==9.9.9"
 
 
 def test_hook_command_targets_install_spec():
