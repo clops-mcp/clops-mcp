@@ -18,7 +18,7 @@ import pytest
 
 from clops import Concept, Op
 from clops.runtime import Runtime
-from clops.runtime.hook_server import BLOCK_REASON, HookServer, decide
+from clops.runtime.hook_server import HookServer, block_reason, decide
 
 
 class M(Concept):
@@ -62,7 +62,7 @@ def test_decide_blocks_when_known_session_has_empty_queue(library):
     rt.note_session("parent-1")  # subagent already made some clops MCP call
     result = decide(rt, {"session_id": "parent-1"})
     assert result["decision"] == "block"
-    assert BLOCK_REASON in result["reason"]
+    assert block_reason() in result["reason"]
 
 
 def test_decide_fails_open_without_session_id():

@@ -23,15 +23,23 @@ import threading
 from pathlib import Path
 from typing import Any
 
+from clops import naming
 from clops.runtime.core import Runtime
 
 
-# Block payload returned to Claude Code when the hook sees a subagent
-# attempting to terminate without calling complete or need.
-BLOCK_REASON = (
-    "Call mcp__clops__complete(execution_id, output) or "
-    "mcp__clops__need(execution_id, reason) before ending your turn."
-)
+def block_reason() -> str:
+    """Block payload returned to Claude Code when the hook sees a subagent
+    attempting to terminate without calling complete or need.
+
+    A function rather than a constant because the tool prefix depends on the
+    server name, which is only known once the server has started (`naming`).
+    Naming the wrong tool here would tell the subagent to call something that
+    does not exist.
+    """
+    return (
+        f"Call {naming.tool('complete')}(execution_id, output) or "
+        f"{naming.tool('need')}(execution_id, reason) before ending your turn."
+    )
 
 
 def decide(runtime: Runtime, payload: dict[str, Any]) -> dict[str, Any]:
@@ -57,7 +65,7 @@ def decide(runtime: Runtime, payload: dict[str, Any]) -> dict[str, Any]:
 
     released = runtime.release_one_completed(parent_session_id)
     if released is None:
-        return {"decision": "block", "reason": BLOCK_REASON}
+        return {"decision": "block", "reason": block_reason()}
     return {}
 
 

@@ -31,6 +31,8 @@ import shutil
 from pathlib import Path
 from typing import Optional
 
+from clops import naming
+
 # ---------- Paths to the bundled plugin assets -----------------------
 
 _PKG_ROOT = Path(__file__).resolve().parent.parent
@@ -42,7 +44,9 @@ SKILL_SRC = PLUGIN_DIR / "skills" / "clops-orchestration" / "SKILL.md"
 # ---------- Config snippets ------------------------------------------
 
 
-MCP_SERVER_NAME = "clops"
+# Default only — the actual name is per-project (`clops init --server-name`), so
+# a locally-installed clops and a hosted one don't both claim `mcp__clops__*`.
+MCP_SERVER_NAME = naming.DEFAULT_SERVER_NAME
 PYPI_NAME = "clops-mcp"
 # clops-mcp is not on PyPI yet — the runtime installs straight from the
 # (private) GitHub repo. Override with CLOPS_INSTALL_SPEC to change the source,
@@ -89,7 +93,11 @@ def build_settings_patch() -> dict:
     }
 
 
-def build_mcp_json(libraries: list[str], sources: list[str]) -> dict:
+def build_mcp_json(
+    libraries: list[str],
+    sources: list[str],
+    server_name: str = naming.DEFAULT_SERVER_NAME,
+) -> dict:
     """Build .mcp.json that runs the clops MCP server via uvx.
 
     Using ``uvx --from clops-mcp`` works regardless of how clops itself was
@@ -97,15 +105,21 @@ def build_mcp_json(libraries: list[str], sources: list[str]) -> dict:
     be on PATH. Library sources are pulled into the same run env via repeated
     ``--with`` flags.
     """
+    server_name = naming.validate_server_name(server_name)
     args = ["--from", install_spec()]
     for src in sources:
         args.extend(["--with", src])
     args.append("clops-server")
     for lib in libraries:
         args.extend(["--library", lib])
+    # Pass the name through: the server derives the tool prefix it puts in
+    # dispatch prompts from it, so a mismatch with the mcpServers key below
+    # would tell subagents to call tools that don't exist.
+    if server_name != naming.DEFAULT_SERVER_NAME:
+        args.extend(["--server-name", server_name])
     return {
         "mcpServers": {
-            MCP_SERVER_NAME: {
+            server_name: {
                 "type": "stdio",
                 "command": "uvx",
                 "args": args,
@@ -198,10 +212,15 @@ def write_settings(project_dir: Path) -> Path:
     return settings_path
 
 
-def write_mcp_json(project_dir: Path, libraries: list[str], sources: list[str]) -> Path:
+def write_mcp_json(
+    project_dir: Path,
+    libraries: list[str],
+    sources: list[str],
+    server_name: str = naming.DEFAULT_SERVER_NAME,
+) -> Path:
     """Write .mcp.json with MCP server config (uv run + --with for sources)."""
     mcp_path = project_dir / ".mcp.json"
-    mcp_data = build_mcp_json(libraries, sources)
+    mcp_data = build_mcp_json(libraries, sources, server_name)
     mcp_path.write_text(json.dumps(mcp_data, indent=2) + "\n")
     return mcp_path
 
@@ -234,7 +253,13 @@ def update_gitignore(project_dir: Path) -> Optional[Path]:
 # ---------- Subcommand entry point ------------------------------------
 
 
-def init_project(project_dir: Path, libraries: list[str], *, write_skill_file: bool = True) -> dict[str, Path]:
+def init_project(
+    project_dir: Path,
+    libraries: list[str],
+    *,
+    write_skill_file: bool = True,
+    server_name: str = naming.DEFAULT_SERVER_NAME,
+) -> dict[str, Path]:
     """Write all init artifacts. Returns a map of what was written."""
     from clops.runtime.clops import _parse_library_line
 
@@ -248,7 +273,7 @@ def init_project(project_dir: Path, libraries: list[str], *, write_skill_file: b
 
     written: dict[str, Path] = {}
     written["clops"] = write_clops(project_dir, libraries)
-    written["mcp_json"] = write_mcp_json(project_dir, modules, sources)
+    written["mcp_json"] = write_mcp_json(project_dir, modules, sources, server_name)
     written["settings"] = write_settings(project_dir)
     written["clops_executor"] = write_clops_executor(project_dir)
     if write_skill_file:
@@ -274,6 +299,15 @@ def add_arguments(parser) -> None:
         action="store_true",
         help="Skip copying the clops-orchestration skill (use if you rely on the installed plugin for it).",
     )
+    parser.add_argument(
+        "--server-name",
+        default=naming.DEFAULT_SERVER_NAME,
+        help=(
+            "Name for the MCP server in .mcp.json, which sets the tool prefix "
+            "(mcp__<name>__complete). Give a hosted clops a distinct name so it "
+            f"doesn't collide with a local one. Default: {naming.DEFAULT_SERVER_NAME}."
+        ),
+    )
 
 
 def run(ns) -> int:
@@ -282,6 +316,7 @@ def run(ns) -> int:
         Path(ns.project_dir),
         libraries=ns.library,
         write_skill_file=not ns.no_skill,
+        server_name=ns.server_name,
     )
     for key, path in written.items():
         print(f"wrote {key}: {path}")

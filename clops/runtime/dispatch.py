@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-from clops import models
+from clops import models, naming
 from clops.concept import Concept
 from clops.op import Op
 from clops.registry import registry
@@ -121,7 +121,7 @@ def render_prompt(
         lines.append("## Capabilities available to you")
         lines.append(
             "Invoke any of these through "
-            "`mcp__clops__call_tool(execution_id, name, arguments)`."
+            f"`{naming.tool('call_tool')}(execution_id, name, arguments)`."
         )
         for t in tool_entries:
             param_block = ""
@@ -158,7 +158,7 @@ def render_prompt(
         lines.append("")
         lines.append(
             "Read or write state via "
-            f'`mcp__clops__state(execution_id="{execution_id}", store=<name>, '
+            f'`{naming.tool("state")}(execution_id="{execution_id}", store=<name>, '
             "operation=<op>, ...)`."
         )
 
@@ -186,7 +186,7 @@ def render_prompt(
     lines.append("")
     if use_manifest:
         lines.append(
-            f"- Call `mcp__clops__complete(execution_id=\"{execution_id}\", output=…)` "
+            f"- Call `{naming.tool('complete')}(execution_id=\"{execution_id}\", output=…)` "
             "when your step is done. For `output`, pass a SHORT one-line manifest "
             "naming what you are now holding that a later step could ask you for "
             '(e.g. "parsed_config, error_list, summary"). Do not write out the full '
@@ -195,11 +195,11 @@ def render_prompt(
         )
     else:
         lines.append(
-            f"- Call `mcp__clops__complete(execution_id=\"{execution_id}\", output=…)` "
+            f"- Call `{naming.tool('complete')}(execution_id=\"{execution_id}\", output=…)` "
             "when your step is done. Include reasoning with your output."
         )
     lines.append(
-        f"- Call `mcp__clops__need(execution_id=\"{execution_id}\", reason=…)` "
+        f"- Call `{naming.tool('need')}(execution_id=\"{execution_id}\", reason=…)` "
         "if you cannot proceed (missing info, malformed input)."
     )
     lines.append("- You must call exactly one of these before ending your turn.")

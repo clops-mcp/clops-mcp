@@ -41,6 +41,7 @@ import mcp.types as mcp_types
 from mcp.server import Server
 from mcp.server.stdio import stdio_server
 
+from clops import naming
 from clops.registry import registry
 from clops.runtime.core import Runtime, RuntimeError_
 
@@ -504,7 +505,21 @@ def build_server_from_argv(argv: list[str]) -> FlowServer:
         help="Python import path to an Op library package (repeatable).",
     )
     parser.add_argument("--project-dir", help="Project directory; falls back to $CLAUDE_PROJECT_DIR or cwd.")
+    parser.add_argument(
+        "--server-name",
+        default=naming.DEFAULT_SERVER_NAME,
+        help=(
+            "MCP server name, which sets the tool prefix subagents are told to call "
+            f"(mcp__<name>__complete). Must match the key in .mcp.json. "
+            f"Default: {naming.DEFAULT_SERVER_NAME}."
+        ),
+    )
     ns = parser.parse_args(argv)
+
+    # Set before anything renders a prompt: dispatch text and the hook's block
+    # message both name tools by this prefix, and naming the wrong one tells a
+    # subagent to call something that does not exist.
+    naming.set_server_name(ns.server_name)
 
     project_dir = Path(ns.project_dir) if ns.project_dir else None
     resolved_dir = resolve_project_dir(project_dir)
