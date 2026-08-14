@@ -12,9 +12,20 @@
 graft tests
 
 graft examples
-graft docs
-include QUICKSTART.md
+
+# Docs are listed one by one, NOT grafted. `docs/` also holds internal strategy
+# and research — vision.md, ecosystem-strategy.md, deployment-research.md,
+# candid vendor comparisons, notes from running this at work. An sdist on PyPI
+# is public and permanent; a `graft docs` would publish all of it. These six are
+# the ones the README links, i.e. the ones written for users.
+include docs/philosophy.md
+include docs/concepts.md
+include docs/patterns.md
+include docs/examples.md
+include docs/combinators.md
 include authoring-spec.md
+
+include QUICKSTART.md
 include server.json
 
 # Never ship build/scratch artifacts.
