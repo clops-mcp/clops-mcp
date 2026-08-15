@@ -24,7 +24,6 @@ include docs/examples.md
 include docs/combinators.md
 include authoring-spec.md
 
-include QUICKSTART.md
 include server.json
 
 # Never ship build/scratch artifacts.

@@ -36,6 +36,14 @@ Then paste the prompt from `SCENARIO.md` into the session and observe.
 
 Compare what you see against the scenario's "Expected behavior" section. Pass / fail / partial is your judgment call.
 
+### When a scenario doesn't start
+
+| Symptom | Cause |
+|---|---|
+| MCP server won't connect | Wrong path in `.claude/settings.json`. Run `/mcp` in Claude Code to see server status. |
+| `list_processes` returns empty | The library didn't load — check the `--library` argument matches the package you installed. |
+| Subagent ends without calling `complete` | The hook should block it. If it doesn't, the `clops-hook` command path is wrong — or the hook never bound, which the server reports on stderr as `SubagentStop enforcement disabled`. |
+
 ---
 
 ## Scenarios

@@ -25,3 +25,8 @@ deploy/**/wheels/
 # git because a repo publishes everything forever — including anything you
 # delete later. If a note is meant for readers, it goes in docs/ instead.
 internal/
+
+# MANIFEST.in already prunes this from the sdist, but that does nothing for
+# git — untracked and unignored, one `git add -A` commits it. Delete this line
+# when it is ready to show.
+landing-page/
