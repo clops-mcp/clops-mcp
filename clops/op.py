@@ -57,6 +57,17 @@ class OpMeta(type):
                 "(why this Op exists, what approach it takes, and what was considered)."
             )
 
+        # Teammates (persistent sub-agents) were removed from the runtime.
+        # Reject their attributes loudly instead of silently ignoring them.
+        for removed in ("Team", "persistence", "Init"):
+            if removed in namespace:
+                errors.append(
+                    f"Op {name!r} declares `{removed}`, which belonged to the removed "
+                    "teammate feature (persistent sub-agents). The runtime no longer "
+                    "honors it — delete the attribute. "
+                    "See docs/migration-interpreter-swap.md."
+                )
+
         input_cls = namespace.get("Input")
         output_cls = namespace.get("Output")
         if input_cls is None:

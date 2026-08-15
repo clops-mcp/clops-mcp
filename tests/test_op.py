@@ -44,6 +44,62 @@ def test_input_must_be_concept():
             Meta = "Test fixture Op for validating Input type check."
 
 
+def test_team_attribute_rejected():
+    with pytest.raises(TypeError) as exc:
+        class HasTeam(Op):
+            Input = Msg
+            Output = Result
+            Intent = "x"
+            Meta = "Test fixture Op for validating the removed Team attribute."
+            Team = {"helper": object}
+
+    assert "`Team`" in str(exc.value)
+    assert "teammate" in str(exc.value)
+    assert "docs/migration-interpreter-swap.md" in str(exc.value)
+
+
+def test_persistence_attribute_rejected():
+    with pytest.raises(TypeError) as exc:
+        class HasPersistence(Op):
+            Input = Msg
+            Output = Result
+            Intent = "x"
+            Meta = "Test fixture Op for validating the removed persistence attribute."
+            persistence = "teammate"
+
+    assert "`persistence`" in str(exc.value)
+    assert "docs/migration-interpreter-swap.md" in str(exc.value)
+
+
+def test_init_attribute_rejected():
+    with pytest.raises(TypeError) as exc:
+        class HasInit(Op):
+            Input = Msg
+            Output = Result
+            Intent = "x"
+            Meta = "Test fixture Op for validating the removed Init attribute."
+            Init = Msg
+
+    assert "`Init`" in str(exc.value)
+    assert "docs/migration-interpreter-swap.md" in str(exc.value)
+
+
+def test_all_three_removed_attributes_reported_together():
+    with pytest.raises(TypeError) as exc:
+        class OldTeammate(Op):
+            Input = Msg
+            Output = Result
+            Intent = "x"
+            Meta = "Test fixture Op declaring the full removed teammate surface."
+            persistence = "teammate"
+            Init = Msg
+            Team = {"helper": object}
+
+    message = str(exc.value)
+    for attr in ("`Team`", "`persistence`", "`Init`"):
+        assert attr in message
+
+
 def test_valid_leaf_op_registers():
     class MyOp(Op):
         Input = Msg

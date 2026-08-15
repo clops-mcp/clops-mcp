@@ -25,13 +25,10 @@ when-to-use: >
      - `description`: `agent_config.description` (verbatim)
      - `prompt`: `agent_config.prompt` (verbatim)
      - `model`: `agent_config.model` (if present)
-     - After the Agent returns:
-       - If the payload has `report_via == "teammate_response"`, the subagent was a teammate — it didn't (and shouldn't) call `complete`. Relay its final text via `teammate_response(run_id, execution_id, <final text>)`. The `execution_id` for teammate dispatches is surfaced at the top level of the dispatch payload.
-       - Otherwise (`report_via == "step_complete"` or absent), advance the run with `step_complete(run_id)` — **no second argument**. The subagent already reported its result to the runtime via its own `complete(...)` call, so re-passing its text here is redundant (the runtime ignores it). Only if the subagent stopped WITHOUT calling complete or need should you pass its final text as a fallback: `step_complete(run_id, <final text>)`.
+     - After the Agent returns, advance the run with `step_complete(run_id)` — **no second argument**. The subagent already reported its result to the runtime via its own `complete(...)` call, so re-passing its text here is redundant (the runtime ignores it). Only if the subagent stopped WITHOUT calling complete or need should you pass its final text as a fallback: `step_complete(run_id, <final text>)`.
    - If `action == "dispatch_parallel"`: invoke the Agent tool **N times in parallel** — one per entry in `agent_configs`. Emit all N Agent tool calls in a single message so Claude Code runs them concurrently.
      - Each subagent has its own `execution_id` baked into its prompt. The `execution_ids` array in the payload lists them in the same order as `agent_configs`.
      - Wait for ALL N subagents to return before moving on. Do not advance until you have all N final messages.
-   - If `action == "dispatch_teammate_message"`: a worker called `send()` to message a teammate. Dispatch the teammate agent exactly like a `"dispatch"` action. After it returns, relay via `teammate_response(run_id, execution_id, <final text>)` using the top-level `execution_id` from the payload (this is the teammate's ID, not the worker's). The runtime will then re-dispatch the worker with the teammate's response attached.
    - If `action == "needs_resolution"`: a subagent called `need()` because it couldn't proceed. The payload has `reason` and `execution_id`. Decide whether to resolve or abort:
      - **Resolve:** gather the requested information (ask the user, reason from context, call another tool), then call `resolve_need(run_id, execution_id, supplemental_input)`. Runtime re-dispatches the same Op with your supplemental attached to its prompt.
      - **Abort:** if the need can't be satisfied, call `abort_run(run_id)`.
@@ -41,7 +38,6 @@ when-to-use: >
 
 3. Report results back to the MCP — the routing is captured within step 2's branches. To summarize:
    - Single worker dispatch (`report_via: "step_complete"`): `step_complete(run_id)` — no blob; the runtime already has the subagent's output from its `complete()` call.
-   - Teammate dispatch (`report_via: "teammate_response"`): `teammate_response(run_id, execution_id, <final text>)`.
    - Parallel dispatch: `step_complete_parallel(run_id, results)` with a dict keyed by execution_id.
    - Needs resolution: `resolve_need(run_id, execution_id, supplemental_input)` or `abort_run(run_id)`.
 

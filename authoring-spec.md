@@ -208,14 +208,11 @@ That's complete. Runnable as a process. Additive fields below are optional.
 | `Input` | `Concept` subclass | Required. What this Op consumes. |
 | `Output` | `Concept` subclass | Required. What this Op produces. |
 | `Intent` | `str` | Required. Purpose + anti-scope + success criteria. |
-| `persistence` | `"worker"` \| `"teammate"` | Default `"worker"`. Teammate is Phase 4. |
-| `Init` | `Concept` subclass | Required iff persistence == "teammate". |
 | `Uses` | `list` of `Snippet` \| `Op` | Pinned references (by ID). |
 | `Requires` | `list` of `SnippetRole` | Role-based soft declarations. |
 | `Tools` | `list` of `Tool` | External capabilities available to this Op. |
 | _`name`_ `= Store(T)` | `Store` attribute | Run-scoped state. Composition Ops only. |
 | `Resolve` | `dict[str, resolver spec]` | Pre-computed queries evaluated before dispatch. |
-| `Team` | `dict[str, teammate Op class]` | Phase 4: lifecycle shipped (slice 01); messaging in slice 02. |
 | `Examples` | iterable | Few-shot demonstrations. |
 | `Model` | `str` \| `None` | Optional model override. |
 | `body` | combinator tree | Absent on leaves; present on compositions. |
@@ -226,8 +223,6 @@ That's complete. Runnable as a process. Additive fields below are optional.
 **Rules enforced at class definition (metaclass, hard errors):**
 - `Input` and `Output` must be Concept subclasses.
 - `Intent` must be a non-empty string.
-- `persistence` must be `"worker"` or `"teammate"`.
-- Teammate Ops must declare `Init`.
 
 **Rules enforced by the linter (soft warnings):**
 - `Intent` around 1000–2000 characters.
@@ -385,84 +380,6 @@ clops lint my_company.ops
 ```
 
 Exits non-zero on any error-level finding, making it suitable for pre-commit or CI.
-
-## Declaring a teammate
-
-Teammates are persistent sub-agents that live for the declaring Op's lifetime. Declare on a worker Op via `Team = {role: TeammateOpClass}`:
-
-```python
-class ResearchHelper(Op):
-    Input = ResearchQuery        # what you'll send at each turn
-    Output = ResearchFindings    # what the teammate responds with
-    Intent = "Research topics for the declaring Op across multiple messages."
-    persistence = "teammate"
-    Init = ResearchBrief         # one-time setup context, required
-
-class AnalyzeRefund(Op):
-    Input = RefundRequest
-    Output = Decision
-    Intent = "Analyze a refund, consulting the researcher as needed."
-    Team = {"researcher": ResearchHelper}
-    entry = True
-```
-
-Phase 4 slices 01 + 02 (shipped): runtime creates each teammate by dispatching its Init first, then runs the worker. The worker's subagent can call `mcp__clops__send(execution_id, role, message)` to consult a teammate. The worker then ends its turn; the runtime dispatches the teammate with the message plus full conversation history, and re-dispatches the worker with the teammate's response attached under a "Teammate response" section. Multiple send/response cycles per worker are supported.
-
-Typical worker Intent for a teammate-using Op:
-
-```
-"Classify a customer support message.
-
-Process:
-1. If the message mentions a specific product, call
-   `mcp__clops__send(execution_id=<your id>, role='product_expert', message=<the product name>)`
-   and end your turn. You will be re-dispatched with the expert's
-   briefing under a 'Teammate response' section.
-2. Use the briefing (and any additional sends) to write your
-   final classification.
-3. Call `complete` with the classification."
-```
-
-**Rules enforced at class definition:**
-- `Team` must be a `dict`, keys must be valid Python identifiers.
-- Each value must be an Op class with `persistence = "teammate"` and an `Init` Concept.
-- Teammates cannot declare their own `Team` (nested teammates deferred).
-
-### Handles across composition boundaries
-
-As of slice 04, compositions can declare `Team` and thread teammates into sub-Ops via `Op.with_handles(child_role="parent_role")`:
-
-```python
-class CaseHandler(Op):
-    Input = Case
-    Output = Brief
-    Intent = "Investigate then summarize a case."
-    Team = {"researcher": ResearchHelper}
-    body = sequence(
-        Investigate.with_handles(researcher="researcher"),
-        Summarize.with_handles(researcher="researcher"),
-    )
-    entry = True
-```
-
-Both `Investigate` and `Summarize` receive the researcher handle under the role `researcher` (identical names are the common case; rename via `with_handles(helper="researcher")` if the sub-Op prefers a different local name). The teammate Init-dispatches once at the composition's start; both sub-Ops consult the same teammate, accumulating conversation history across boundaries. The teammate is dismissed when the composition's run terminates.
-
-### Teammate `Output` variants
-
-A teammate can declare its Output as a `Union` of Concepts — useful when responses naturally take different shapes:
-
-```python
-class Research(Op):
-    Input = Query
-    Output = FoundAnswer | CannotHelp | NeedMoreContext
-    Intent = "Answer factual questions; back off honestly when you can't."
-    persistence = "teammate"
-    Init = Setup
-```
-
-The teammate's prompt lists each variant with its description, and asks the teammate to tag its response with `[VariantName]` on the first line. Worker-side branching on variants is still prose-shaped today — the worker reads the response and decides.
-
-Workers cannot declare Union outputs; that requires composition-level switching, which is adjacent architectural work.
 
 ## Exploring an existing library
 
