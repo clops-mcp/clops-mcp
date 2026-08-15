@@ -73,7 +73,7 @@ def qualify_server_name(name: str) -> str:
 
     So the caller supplies only the distinguishing part and we add the hint:
 
-        acme-dev   -> clops-acme-dev
+        acme-dev       -> clops-acme-dev
         support        -> clops-support
         clops          -> clops              (already says it)
         clops-support  -> clops-support      (idempotent; no double prefix)
