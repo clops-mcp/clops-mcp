@@ -1,11 +1,28 @@
 name: Release
 
-# Push a tag matching v* (e.g. v0.1.0) to cut a release:
-#   - verifies the tag matches the pyproject version
+# Releases are MANUAL. Actions → Release → "Run workflow", give it an existing
+# tag. There is deliberately no `push: tags` trigger — a PyPI version can never
+# be reused or reverted, so cutting one has to be something a person chose to
+# do, not something a `git push --tags` did on the way past.
+#
+# What a run does, in order, stopping at the first failure:
+#   - checks out the tag you named (not the branch you ran from)
+#   - verifies the tag matches the version in pyproject.toml
 #   - runs the test suite
 #   - builds the sdist + wheel
+#   - installs the wheel into a clean venv with no lockfile and exercises it
 #   - publishes clops-mcp to PyPI (trusted publishing / OIDC)
 #   - creates a GitHub release with generated notes
+#
+# To cut a release:
+#   1. bump `version` in pyproject.toml, commit, push
+#   2. git tag -a v0.3.1 -m "..." && git push origin v0.3.1
+#   3. run this workflow with tag = v0.3.1
+#
+# Publishing is additionally gated on the PUBLISH_PYPI repo variable being
+# "true" (Settings → Secrets and variables → Actions → Variables). Setting it
+# to anything else turns any run into a build-and-verify dry run, which is a
+# useful thing to do on a release candidate.
 #
 # One-time PyPI setup (trusted publishing — no token stored in the repo):
 #   PyPI → your project (or "pending publisher") → Publishing → add a
@@ -16,6 +33,12 @@ name: Release
 #     Environment: (leave blank — this workflow does not use one)
 #   See https://docs.pypi.org/trusted-publishers/
 #
+# Want a second pair of eyes on top of the manual trigger? Create a GitHub
+# environment named `release` with yourself as a required reviewer, add
+# `environment: release` to the job, and set Environment to `release` on the
+# PyPI publisher above. Every run then waits for an explicit approval click.
+# Both halves are required — changing only one breaks publishing.
+#
 # Token fallback (if you don't use trusted publishing): add a PYPI_API_TOKEN
 # repo secret and replace the whole `uv publish` command with:
 #   run: uv publish --token "${{ secrets.PYPI_API_TOKEN }}"
@@ -23,9 +46,12 @@ name: Release
 # missing OIDC config fail loudly instead of silently looking for a token.)
 
 on:
-  push:
-    tags:
-      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag to release, e.g. v0.3.1. Must already be pushed, and must match the version in pyproject.toml."
+        required: true
+        type: string
 
 jobs:
   release:
@@ -33,8 +59,16 @@ jobs:
     permissions:
       id-token: write   # PyPI trusted publishing (OIDC)
       contents: write   # create the GitHub release
+    env:
+      TAG: ${{ inputs.tag }}
     steps:
+      # Check out the TAG, not the branch the workflow was dispatched from.
+      # Without `ref:` this builds whatever is on the default branch and
+      # publishes it under the tag's name — the two would silently differ the
+      # moment anything lands after the tag.
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag }}
 
       - name: Install uv
         uses: astral-sh/setup-uv@v5
@@ -43,13 +77,13 @@ jobs:
 
       - name: Verify tag matches package version
         run: |
-          tag="${GITHUB_REF_NAME#v}"
+          tag="${TAG#v}"
           ver="$(grep -m1 '^version = ' pyproject.toml | sed -E 's/version = "(.*)"/\1/')"
           if [ "$tag" != "$ver" ]; then
-            echo "::error::tag ${GITHUB_REF_NAME} does not match pyproject version ${ver}"
+            echo "::error::tag ${TAG} does not match pyproject version ${ver}"
             exit 1
           fi
-          echo "Releasing clops-mcp ${ver}"
+          echo "Releasing clops-mcp ${ver} from ${TAG}"
 
       - name: Run tests
         run: uv run --extra dev pytest -q
@@ -131,9 +165,11 @@ jobs:
       - name: Warn that PyPI publishing was skipped
         if: ${{ vars.PUBLISH_PYPI != 'true' }}
         run: |
-          echo "::warning::PUBLISH_PYPI is not 'true' — built ${GITHUB_REF_NAME} but did NOT publish to PyPI."
+          echo "::warning::PUBLISH_PYPI is not 'true' — built ${TAG} but did NOT publish to PyPI."
 
       - name: Create GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "${GITHUB_REF_NAME}" --generate-notes --verify-tag
+        # --verify-tag: refuse to invent a tag. Without it, a typo in the input
+        # creates a release pointing at a tag that does not exist.
+        run: gh release create "${TAG}" --generate-notes --verify-tag
