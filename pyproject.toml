@@ -65,6 +65,16 @@ dev = [
 clops = "clops.cli.main:main"
 clops-server = "clops.runtime.mcp_server:main"
 clops-hook = "clops.cli.hook:main"
+# `uvx <name>` installs package <name> and then runs an executable *also* called
+# <name>. Without this alias `uvx clops-mcp` fails outright — uv lists the three
+# scripts above and tells you to use `uvx --from clops-mcp <script>` instead.
+# Worse, the obvious next guess, `uvx clops`, installs an unrelated `clops`
+# project from PyPI that is not this one.
+#
+# It points at the server rather than the CLI because the reason to `uvx` an MCP
+# package is to launch it from a client config:
+#   {"command": "uvx", "args": ["clops-mcp", "--library", "my_ops"]}
+clops-mcp = "clops.runtime.mcp_server:main"
 
 [tool.setuptools.packages.find]
 where = ["."]
