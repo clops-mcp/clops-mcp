@@ -5,7 +5,7 @@ This library decomposes code review into focused thought-step Ops:
 - SampleAndOrient: understand codebase conventions
 - IdentifyBlindspots: find overlooked analysis categories
 - PlanAssessment: map files to analysis lenses
-- AssessFile: apply lenses to find issues
+- AssessFile: read the planned files and apply lenses to find issues
 - ValidateInContext: filter false positives
 - SynthesizeFindings: group and summarize
 - CheckForMissedAngles: catch overlooked areas
@@ -15,6 +15,6 @@ This library decomposes code review into focused thought-step Ops:
 Entry point: ReviewDiff
 """
 
-from clops.stdlib.code_review import concepts, snippets, ops
+from clops.stdlib.code_review import concepts, snippets, tools, ops
 
-__all__ = ["concepts", "snippets", "ops"]
+__all__ = ["concepts", "snippets", "tools", "ops"]

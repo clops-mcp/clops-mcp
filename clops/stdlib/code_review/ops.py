@@ -16,6 +16,7 @@ from clops.stdlib.code_review.concepts import (
     ExecutiveSummary,
 )
 from clops.stdlib.code_review.snippets import severity_guidelines, confidence_guidelines
+from clops.stdlib.code_review.tools import grep_pattern, read_file
 
 
 # --- Step 1: Determine what's in scope ---
@@ -117,13 +118,20 @@ class PlanAssessment(Op):
     )
 
 
-# --- Step 5: Assess a single file (run per-file) ---
+# --- Step 5: Assess the files the plan names (one pass, no fan-out) ---
 class AssessFile(Op):
     Input = AssessmentPlan
     Output = FileFindings
     Intent = (
-        "Apply the specified assessment lenses to analyze the file. For each "
-        "finding, report:\n"
+        "Apply the assessment lenses the plan assigns to each file it names.\n\n"
+        "The plan reaches you without the code attached. Read the code before "
+        "judging it: `read_file` returns a file from the project under review "
+        "with line numbers, and `grep_pattern` finds a usage or a pattern "
+        "across the tree. Assess a file only after you have read it. If the "
+        "plan names no path you can read, call `need` rather than assessing "
+        "the plan itself.\n\n"
+        "For each finding, report:\n"
+        "- File: the path assessed\n"
         "- Location: line range or function name\n"
         "- Category: which lens found this\n"
         "- Severity: critical, high, medium, or low\n"
@@ -134,13 +142,19 @@ class AssessFile(Op):
     )
     Meta = (
         "The analysis step proper, kept narrow: apply the lenses the plan "
-        "assigned and report what is actually there. Severity and confidence "
-        "come from pinned Snippets rather than the Intent so the scale stays "
-        "consistent across files and can be retuned in one place. 'No finding "
-        "is also a valid output' is load-bearing — a step that must produce "
-        "something will, and validation downstream then spends itself on noise."
+        "assigned and report what is actually there. A sequence carries only "
+        "the previous step's output, so the plan arrives here with no code "
+        "attached — `read_file` and `grep_pattern` are how the Op reaches the "
+        "files the plan names, which is cheaper and less lossy than having "
+        "every upstream step re-emit the diff to carry it forward. Severity "
+        "and confidence come from pinned Snippets rather than the Intent so "
+        "the scale stays consistent across files and can be retuned in one "
+        "place. 'No finding is also a valid output' is load-bearing — a step "
+        "that must produce something will, and validation downstream then "
+        "spends itself on noise."
     )
     Uses = [severity_guidelines, confidence_guidelines]
+    Tools = [read_file, grep_pattern]
 
 
 # --- Step 6: Validate findings in context ---

@@ -44,9 +44,10 @@ class AssessmentPlan(Concept):
 
 class FileFindings(Concept):
     description = (
-        "Findings from analyzing a single file. Each finding includes: "
-        "location (line range), category, severity (critical/high/medium/low), "
-        "confidence (high/medium/low), and a one-sentence explanation."
+        "Findings from analyzing the files in scope. Each finding includes: "
+        "file path, location (line range), category, severity "
+        "(critical/high/medium/low), confidence (high/medium/low), and a "
+        "one-sentence explanation."
     )
 
 
@@ -75,8 +76,8 @@ class MissedAngles(Concept):
 class StructuredReport(Concept):
     description = (
         "A markdown-formatted code review report with sections for: "
-        "summary, critical findings, categorized findings, verification "
-        "status, and recommended actions."
+        "summary, critical findings, categorized findings, missed angles, "
+        "and recommended actions."
     )
 
 
