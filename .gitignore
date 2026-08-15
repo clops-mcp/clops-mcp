@@ -30,3 +30,6 @@ internal/
 # git — untracked and unignored, one `git add -A` commits it. Delete this line
 # when it is ready to show.
 landing-page/
+
+# Local Claude Code project settings. Kept on disk, out of the repo.
+.claude/settings.json
