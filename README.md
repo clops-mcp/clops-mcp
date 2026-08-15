@@ -1,10 +1,169 @@
 # clops
 
-A runtime for LLM-bodied functions. Define pipelines as graphs of typed steps, then let Claude Code orchestrate them via MCP.
+Long-running, multi-step Claude Code workflows, written in Python and run one
+focused step at a time.
 
-## What it is
+## The problem
 
-clops lets you decompose complex work into **Ops** — small, focused units of thought that LLM agents execute. You declare what each step does, what data flows between them, and how they compose. The runtime handles dispatch, state, and orchestration.
+You write a skill for a workflow you run every week. It works. Then you add the
+edge cases, the exceptions, the "don't forget to check X" — and it stops
+working. Claude cheats the steps it finds boring. It forgets details buried in
+the middle. It overcorrects on whatever you emphasised last. The more detail you
+add to make it reliable, the less reliable it gets, because the entire document
+is in context the entire time and Claude has to keep deciding, unprompted, which
+part applies right now.
+
+clops inverts that. Each step of the workflow is a separate **Op** with its own
+prompt, its own input, and its own subagent. The runtime decides which Op runs
+next and renders the prompt for it. The agent doing the work sees one step's
+worth of instruction — not the workflow.
+
+The whole goal of clops is to help Claude think about what it needs to think
+about right now, and not a whole lot else.
+
+The payoff compounds: a workflow you get right once stays right, and you can
+compose it into bigger ones instead of rewriting it. Your workflows stop being
+disposable.
+
+## What this is not
+
+**This is not an agent framework.** clops has no API key, no provider SDK, and
+no model calls of its own. It runs inside Claude Code, which supplies the model
+and the subagents. If what you want is durable execution, retries, and
+observability for unattended production agents, you want LangGraph or Temporal,
+not this.
+
+**This is not for unattended work.** clops targets interactive and
+semi-interactive workflows — the ones where you are in the loop, or will be
+shortly. The value is *preparation*: the machine spends twenty minutes building
+context, and when your attention arrives the work is ready to go. If nobody is
+coming back, clops buys you nothing.
+
+## Why not just write a skill?
+
+| Objection | Answer |
+|---|---|
+| "Just write a skill." | A detailed skill is one long document Claude must self-apply. clops hands the agent one step at a time, with only that step's context. |
+| "Skills and slash commands are simpler." | They are, until you have twenty of them. A clops Op library of any size adds **zero** MCP tools — the surface is fixed at 11. Two hundred Ops do not crowd the namespace. |
+| "Isn't that the same thing?" | Invocation is explicit: *run the dev workflow*, *run the support triage*. It runs the same way each time without you re-steering it. |
+| "Where does the reliability come from?" | Structure the model can't skip. Sequencing, branching, and state live in Python and are walked by the runtime, not inferred by an agent reading instructions. |
+
+## How it works
+
+Worth stating plainly, because it is backwards from most MCP servers: **clops
+drives Claude Code, not the other way round.**
+
+1. You ask Claude to run a process. It calls `start_process` on the clops MCP
+   server.
+2. The runtime walks your composition, picks the next leaf Op, and returns a
+   **fully rendered prompt** plus a dispatch instruction.
+3. Claude Code's main thread relays: it spawns the `clops-executor` subagent
+   with that prompt verbatim. It does not write the prompt, choose the step, or
+   see the rest of the workflow.
+4. The subagent does the work and calls `complete(execution_id, output)`.
+5. The main thread calls `step_complete(run_id)`. The runtime advances and
+   returns the next dispatch — or `done`.
+
+The main thread holds a `run_id` and a relay loop. Flow state, step selection,
+prompt assembly, and shared storage all live in the runtime. That is the whole
+trick: the thing that forgets is never the thing keeping track.
+
+A real `start_process` payload, from a freshly scaffolded library:
+
+```
+action: dispatch | agent_template: clops-executor
+prompt:
+  # Echo
+  ## Your task
+  Echo the greeting back, prefixed with 'echo: '.
+  ## What you'll receive
+  Greeting: A short greeting from the user.
+  ## Exit conditions
+  Your execution_id is `exec_fcc7187c`. Pass it on every call.
+  ...
+```
+
+## Quickstart
+
+Requires [uv](https://docs.astral.sh/uv/) and Claude Code.
+
+**Install.** The distribution is **`clops-mcp`**; the import package and the CLI
+are both `clops`. Mind the difference — `clops` on PyPI is an unrelated project,
+so `pip install clops` gets you somebody else's package.
+
+```bash
+uv tool install clops-mcp
+```
+
+> **Not published yet.** `clops-mcp` is not on PyPI as of this writing. Until it
+> is, install from the repo — same command shape, same result:
+> `uv tool install git+https://github.com/wesley-harding/clops`
+
+**Set up a project.** From your project root:
+
+```bash
+mkdir demo && cd demo
+clops init --library clops.stdlib.session_analyzer
+```
+
+That writes `.mcp.json` (the clops MCP server), `.clops` (the project's
+libraries), the `SubagentStop` hook in `.claude/settings.json`, the
+`clops-executor` agent, the orchestration skill, and a `.gitignore` line for the
+runtime's scratch directory. The result is self-contained: a fresh clone needs
+only `uv` and no global clops install, because the generated `.mcp.json` invokes
+the server through `uvx`.
+
+**Look at what you got.**
+
+```bash
+clops show clops.stdlib.session_analyzer
+```
+
+```
+Ops (6):
+  AnalyzeSession  [ENTRY]
+    Input:    SessionTranscript
+    Output:   ImprovementPlan
+    body:
+      └─ sequence
+        └─ ParseTranscript
+        └─ FindInflectionPoints
+        └─ ExtractThinkingContext
+        └─ EvaluateThinkingEffectiveness
+        └─ EncodeAsPriming
+  ...
+```
+
+**Run it.** Open `claude` in that directory and ask:
+
+```
+Run the AnalyzeSession process on my latest session.
+```
+
+Claude loads the orchestration skill, calls `start_process`, and relays five
+dispatches — one per Op in the sequence — reporting the final `ImprovementPlan`
+when the run completes.
+
+### Or start your own library
+
+```bash
+clops new-library my_ops                       # scaffolds an installable package
+clops init --library "my_ops @ ./my_ops"       # wires it into the project
+PYTHONPATH=./my_ops clops lint my_ops          # check it
+PYTHONPATH=./my_ops clops show my_ops          # see its shape
+```
+
+`new-library` writes a real Python package (`pyproject.toml`, `concepts.py`,
+`ops.py`) with one working demo Op. The `module @ source` form in `--library`
+tells `init` to pull the library in via `uv --with` at server start, so nothing
+needs to be pip-installed for the *runtime* to see it.
+
+`lint` and `show` are a different story: they run in whatever environment the
+`clops` CLI lives in, so an uninstalled library has to be put on the path.
+`PYTHONPATH=./my_ops` is the quick way; `pip install -e ./my_ops` into your
+project's venv is the durable one.
+
+## Writing an Op
 
 ```python
 from clops import Concept, Field, Op, Store, sequence
@@ -44,90 +203,63 @@ class ManageProject(Op):
     body = sequence(PlanTasks, ExecuteTasks)
 ```
 
-## Key ideas
+Three things to notice:
 
-- **Ops are declarations, not code.** You define Intent, Input, Output — the LLM figures out how.
-- **Equip, don't prescribe.** Give agents capabilities (Tools, Stores) and let them decide when to use them.
-- **State stores** share typed, mutable data across pipeline steps. Backed by TinyDB.
-- **Typed Concepts** with Fields tell agents exactly what shape data should have.
-- **Composition** via `sequence`, `branch_on`, `gather`, `loop` — no custom orchestration code.
+- **`PlanTasks` and `ExecuteTasks` have no `body`.** An Op without a body is a
+  *leaf*: it becomes one subagent dispatch. An Op with a body is a
+  *composition*: it is never dispatched at all, it only tells the runtime what
+  order to walk in.
+- **`Intent` is the prompt.** `Meta` is why the Op exists — required on every
+  Op, so a library explains its own design to whoever inherits it (including
+  the next agent).
+- **`Concept` and `Field` are descriptions, not schemas.** Nothing validates the
+  runtime value; it is whatever the producing agent produced. The descriptions
+  are rendered into the prompt so the agent knows what it is receiving and what
+  to hand back.
 
-## Install
+What *is* enforced is the declaration. `OpMeta` raises `TypeError` at
+class-definition time if `Intent`, `Meta`, `Input`, or `Output` is missing or
+the wrong shape — the import fails, not the run. `clops lint` covers the
+cross-artifact checks a metaclass can't see: unresolvable snippet roles,
+unregistered references, oversized Intents.
 
-clops runs via `uvx` — nothing needs to live on your `PATH`. The distribution is
-**`clops-mcp`**; the import package and the CLI are both `clops`. Mind the
-difference: `clops` on PyPI is an unrelated project, so `pip install clops`
-gets you somebody else's package. Always install `clops-mcp`.
+### The primitives
 
-> **Not on PyPI yet.** `clops-mcp` hasn't been published, so the GitHub install
-> below is the one that works today. The PyPI commands are recorded here so
-> they're ready the moment it ships — until then they will fail to resolve.
+| | |
+|---|---|
+| **Concept** | A named, described handle for data flowing between Ops. |
+| **Snippet** | Reusable prompt text — policy, format rules — pinned by reference or resolved by role. |
+| **Tool** | A Python function an Op's subagent can call mid-reasoning. Not a Claude Code tool. |
+| **Store** | Run-scoped mutable state shared across a composition's steps. TinyDB-backed. The declared type (`str`, `list[X]`, `dict[str, X]`) selects which operations the agent gets. |
+| **Op** | The unit of computation. Leaf or composition. |
 
-```bash
-# Today — install from GitHub (uvx uses your configured git credentials):
-uvx --from git+https://github.com/wesley-harding/clops clops --help
+Compose with `sequence`, `branch_on`, `gather`, and `loop`. `gather` surfaces
+its branches as a single parallel dispatch round; the rest are what they sound
+like.
 
-# Once clops-mcp is published:
-uvx --from clops-mcp clops --help          # run without installing
-uv tool install clops-mcp                  # or put `clops` on your PATH
-```
+## What's rough
 
-> Prefer SSH (or want to pin a tag)? Set `CLOPS_INSTALL_SPEC` before running `clops init`, e.g. `export CLOPS_INSTALL_SPEC='git+ssh://git@github.com/wesley-harding/clops'` — `init` bakes it into the generated `.mcp.json` and hook.
+Version 0.3.0, alpha, one author. Specifically:
 
-### Set up a project (one command)
-
-```bash
-uvx --from git+https://github.com/wesley-harding/clops clops init --library my_ops
-```
-
-This writes a **self-contained** setup — `.mcp.json` (the clops MCP server), the SubagentStop hook, the executor agent, and the orchestration skill. The generated `.mcp.json` runs `uvx --from git+https://github.com/wesley-harding/clops clops-server` (or your `CLOPS_INSTALL_SPEC`) and pulls any Op-library sources via `--with` at server start, so a fresh clone of your project needs only `uv` installed and git access to this repo.
-
-### Optional: the Claude Code plugin
-
-The plugin adds clops's authoring + orchestration **skills** globally (`/clops:design`, `clops-authoring`, `clops-orchestration`, `/clops`). It does **not** register an MCP server — your project's `.mcp.json` (from `clops init`) owns that, so the two never conflict.
-
-```bash
-claude plugin marketplace add wesley-harding/clops
-claude plugin install clops
-```
-
-### From source (for development)
-
-```bash
-git clone https://github.com/wesley-harding/clops
-cd clops
-uv sync
-```
-
-## Create a project
-
-> Tip: for a persistent `clops` on your `PATH`, run `uv tool install git+https://github.com/wesley-harding/clops` (after publish: `uv tool install clops-mcp`). Otherwise prefix any command with `uvx --from git+https://github.com/wesley-harding/clops` (e.g. `uvx --from git+https://github.com/wesley-harding/clops clops new-library my_ops`).
-
-```bash
-# Scaffold a new library
-clops new-library my_ops
-
-# Set up a project to use it
-clops init --library my_ops
-```
-
-Or with a library from a separate repo:
-
-```bash
-clops init --library "work_ops @ ~/work/work-ops"
-```
-
-The `.clops` file in your project root lists libraries and constants:
-
-```
-# Libraries
-my_ops
-work_ops @ ~/work/work-ops
-
-[constants]
-user_id = wes-dev-123
-database = staging
-```
+- **The orchestrator is an LLM following a skill.** It is asked not to
+  improvise, and mostly it doesn't, but "semi-deterministic" is the honest word.
+  The structure is enforced; the relay is a well-behaved convention.
+- **Stores are run-scoped.** State exists for the duration of a run and is gone
+  after. There is no persistence between runs.
+- **Claude Code only.** clops needs an MCP server, subagents, and the
+  `SubagentStop` hook working together. No other host is supported.
+- **`sequence` is a strict pipeline.** Each step sees only the previous step's
+  output — there is no implicit access to the run's original input from step
+  five. If a later Op needs something from the top, an earlier Op has to put it
+  in a `Store`. This catches people out; design for it.
+- **No shared library registry.** The stdlib ships four libraries — `core`,
+  `code_review`, `session_analyzer`, `business_designer` — and they are
+  demonstrations, not products. `business_designer` needs you to supply a
+  `landscape_intelligence` Snippet before two of its Ops will dispatch, and
+  `code_review`'s per-file assessment step doesn't yet receive the diff it is
+  meant to assess (see the pipeline note above). Beyond that you write your own.
+- **Docs run ahead of the runtime in places.** Where `docs/` and the code
+  disagree, the code is right. File an issue.
 
 ## Documentation
 
@@ -135,27 +267,96 @@ Links are absolute so they also resolve from the PyPI project page.
 
 | Doc | What it covers |
 |-----|---------------|
-| [Philosophy](https://github.com/wesley-harding/clops/blob/main/docs/philosophy.md) | How to think about decomposing work into Ops |
-| [Concepts](https://github.com/wesley-harding/clops/blob/main/docs/concepts.md) | The five primitives: Concept, Snippet, Tool, Store, Op |
-| [Patterns](https://github.com/wesley-harding/clops/blob/main/docs/patterns.md) | Composition patterns and when to use each |
-| [Examples](https://github.com/wesley-harding/clops/blob/main/docs/examples.md) | Eight worked examples from simple to complex |
-| [Combinators](https://github.com/wesley-harding/clops/blob/main/docs/combinators.md) | sequence, branch_on, gather, loop reference |
+| [Philosophy](https://github.com/wesley-harding/clops/blob/main/docs/philosophy.md) | How to decompose work into Ops. Read this before writing a library. |
+| [Concepts](https://github.com/wesley-harding/clops/blob/main/docs/concepts.md) | Reference for the five primitives and the registry |
+| [Patterns](https://github.com/wesley-harding/clops/blob/main/docs/patterns.md) | Common library shapes and when to reach for each |
+| [Examples](https://github.com/wesley-harding/clops/blob/main/docs/examples.md) | Worked examples, simple to complex |
+| [Combinators](https://github.com/wesley-harding/clops/blob/main/docs/combinators.md) | `sequence`, `branch_on`, `gather`, `loop` reference |
 | [Authoring Spec](https://github.com/wesley-harding/clops/blob/main/authoring-spec.md) | Full authoring reference |
-
-## Skills
-
-| Skill | What it does |
-|-------|-------------|
-| `/clops:design` | Principal architect mode — design a pipeline before writing code |
-| `/clops` | Bookmark a moment in the conversation for later analysis |
-| `clops-authoring` | Quick scaffolding and implementation of Ops |
-| `clops-orchestration` | Dispatch relay between MCP server and subagents |
 
 ## CLI
 
 ```bash
-clops new-library <name>    # Scaffold a new Op library
-clops init --library <lib>  # Set up a project for clops
-clops lint <library>        # Validate a library
-clops show <library>        # Print a library's shape
+clops init --library <lib>   # set up a project for clops
+clops new-library <name>     # scaffold a new Op library package
+clops lint <library>         # validate a library
+clops show <library>         # print a library's shape
 ```
+
+All four are non-interactive. `init` merges into an existing `.clops` and
+`.claude/settings.json`, and `new-library` refuses to overwrite an existing
+directory without `--force`.
+
+> **`clops init` overwrites `.mcp.json` wholesale.** If your project already
+> registers other MCP servers there, back the file up and merge the `clops`
+> entry back in by hand. This is a known rough edge, not intended behaviour.
+
+## Project configuration
+
+`clops init` writes a `.clops` file listing the project's libraries. You can
+add constants and standing guidance:
+
+```
+# Libraries
+my_ops
+work_ops @ ~/work/work-ops
+team_ops @ git+https://github.com/company/team-ops
+
+[constants]
+user_id = wes-dev-123
+database = staging
+
+[system_prompt]
+Prefer the strongest agent for design and review steps; use lighter
+agents for mechanical edits.
+```
+
+Constants are registered as read-only stores on every run and appear in every
+Op's prompt. `[system_prompt]` is standing direction for the *orchestrator* —
+guidance on how to size the agent it dispatches to a given step — not for the
+leaf agents. Omit it and a small built-in default applies.
+
+## Optional: the Claude Code plugin
+
+The plugin installs clops's authoring and orchestration skills globally. It does
+**not** register an MCP server — your project's `.mcp.json` from `clops init`
+owns that, so the two never conflict.
+
+```bash
+claude plugin marketplace add wesley-harding/clops
+claude plugin install clops
+```
+
+| Skill | What it does |
+|-------|-------------|
+| `clops-design` | Principal architect mode — design a process before writing code |
+| `clops-authoring` | Scaffold and implement Ops |
+| `clops-orchestration` | The dispatch relay loop — Claude loads it when you start a run. `clops init` also copies it into the project, so the plugin is not required for this one. |
+| `clops-tag` | Bookmark a moment in the conversation for later analysis |
+
+## From source
+
+```bash
+git clone https://github.com/wesley-harding/clops
+cd clops
+uv sync
+uv run pytest
+```
+
+> Installing from a fork or a pinned tag? Set `CLOPS_INSTALL_SPEC` before
+> running `clops init` — e.g.
+> `export CLOPS_INSTALL_SPEC='git+ssh://git@github.com/wesley-harding/clops'` —
+> and `init` bakes it into the generated `.mcp.json` and hook.
+
+## Sharing Ops
+
+An Op library is just a Python package, and `clops new-library` scaffolds a
+publishable one. If you write something generally useful, publish it like any
+other package; another project picks it up with a one-line `.clops` entry
+pointing at a path, a git URL, or a distribution name. There is no registry and
+no central index — this is a nice-to-have, not the point. The point is that your
+own workflows accumulate.
+
+## License
+
+Apache-2.0. See [LICENSE](LICENSE).
