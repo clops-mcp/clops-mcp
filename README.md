@@ -331,10 +331,13 @@ claude plugin install clops
 
 | Skill | What it does |
 |-------|-------------|
-| `clops-design` | Principal architect mode — design a process before writing code |
-| `clops-authoring` | Scaffold and implement Ops |
-| `clops-orchestration` | The dispatch relay loop — Claude loads it when you start a run. `clops init` also copies it into the project, so the plugin is not required for this one. |
-| `clops-tag` | Bookmark a moment in the conversation for later analysis |
+| `clops-orchestration` | The dispatch relay loop. `clops init` also copies it into the project, so the plugin is not required for it. |
+
+The plugin is deliberately thin — one skill and one agent template. Every
+payload the server returns carries a `next_step` field spelling out what the
+caller has to do with it, so the relay is self-describing and the skill is a
+convenience rather than a dependency. That also means it works unchanged
+through a gateway, where nothing has copied a skill file anywhere.
 
 ## From source
 

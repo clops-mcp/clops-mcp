@@ -212,8 +212,8 @@ Intent: |
   - Composition (how Ops connect — sequence, gather, branch, loop)
   - Interconnections (what this agent sends to / receives from other agents)
 
-  Output structured specs that can be handed directly to the
-  clops-authoring skill to build.
+  Output structured specs that can be implemented directly as a
+  clops Op library.
 ```
 
 ## Snippets Needed

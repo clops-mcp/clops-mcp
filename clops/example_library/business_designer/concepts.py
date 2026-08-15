@@ -120,8 +120,8 @@ class DesignGaps(Concept):
 
 class OpLibrarySpecs(Concept):
     description = (
-        "Complete Op library specifications for each agent, ready to hand "
-        "to the clops-authoring skill. Each spec includes: agent_name (str), "
+        "Complete Op library specifications for each agent, ready to implement "
+        "as a clops Op library. Each spec includes: agent_name (str), "
         "purpose (str), concepts (list of {name, description}), "
         "ops (list of {name, intent, meta, input, output}), "
         "snippets (list of {id, content, role}), "

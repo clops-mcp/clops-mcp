@@ -128,7 +128,70 @@ def _jsonify(value: Any) -> str:
     return json.dumps(value, default=str, indent=None)
 
 
+def next_step(payload: dict[str, Any]) -> str | None:
+    """What the caller must do with this payload, in plain language.
+
+    A run only advances if the main thread relays correctly: spawn the
+    subagent, then report back. That knowledge used to live only in the
+    `clops-orchestration` skill, which meant it had to be installed, could
+    drift from the server's actual behaviour, and — like every skill — sat in
+    the context whether or not a run was in progress.
+
+    Putting it in the response instead means the instruction arrives exactly
+    when it applies, always matches the server that produced it, and needs no
+    installation. It is also the only version that survives a gateway, where
+    nothing has copied a skill file anywhere.
+
+    Tool names are rendered through `naming`, so they match whatever the client
+    actually sees — `mcp__clops__complete` locally, `clops-support-complete`
+    behind a gateway that renames tools.
+    """
+    action = payload.get("action")
+    if action == "dispatch":
+        template = payload.get("agent_template", "clops-executor")
+        report = naming.tool(payload.get("report_via", "step_complete"))
+        return (
+            f"Spawn ONE subagent with the Agent tool: subagent_type='{template}', "
+            "with `description` and `prompt` copied verbatim from `agent_config` — "
+            "do not summarise, reword, or add to the prompt. When it finishes, call "
+            f"{report}(run_id, <the subagent's final text>). Do not do the work yourself."
+        )
+    if action == "dispatch_parallel":
+        template = payload.get("agent_template", "clops-executor")
+        report = naming.tool(payload.get("report_via", "step_complete_parallel"))
+        return (
+            f"Spawn one subagent per entry in `agent_configs` — subagent_type='{template}', "
+            "each with its `description` and `prompt` verbatim — and issue them in a single "
+            "message so they run concurrently. When all have finished, call "
+            f"{report}(run_id, {{execution_id: final text}}) with every one of "
+            f"`execution_ids`. Do not do the work yourself."
+        )
+    if action == "needs_resolution":
+        return (
+            "A subagent stopped and asked for something it could not get on its own; "
+            "`reason` says what. Obtain it — from the user if it needs a human — then call "
+            f"{naming.tool('resolve_need')}(run_id, <what was asked for>). The same Op is "
+            "re-dispatched with that added; nothing is lost."
+        )
+    if action == "done":
+        return "The run is finished. `output` is the result — report it to the user. No further calls."
+    if action == "failed":
+        return (
+            "The run failed; `error` says why. Report it. Do not silently retry — a rerun "
+            "starts from the beginning and repeats whatever went wrong."
+        )
+    return None
+
+
 def _text(payload: Any) -> list[mcp_types.TextContent]:
+    # Every tool result funnels through here, which is why the instruction is
+    # attached at this point rather than at the five places payloads are built.
+    # `next_step` returns None for anything without an `action`, so read-only
+    # results like list_processes and state are untouched.
+    if isinstance(payload, dict) and "action" in payload:
+        guidance = next_step(payload)
+        if guidance and "next_step" not in payload:
+            payload = {**payload, "next_step": guidance}
     return [mcp_types.TextContent(type="text", text=_jsonify(payload))]
 
 
