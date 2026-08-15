@@ -62,6 +62,39 @@ def test_clops_mcp_and_clops_server_are_the_same_entry_point(project):
     assert project["scripts"]["clops-mcp"] == project["scripts"]["clops-server"]
 
 
+@pytest.mark.parametrize(
+    "manifest,pointer",
+    [
+        ("server.json", ("version",)),
+        (".claude-plugin/plugin.json", ("version",)),
+        (".claude-plugin/marketplace.json", ("plugins", 0, "version")),
+    ],
+)
+def test_every_manifest_agrees_with_pyproject(project, manifest, pointer):
+    """Four files carry the version and nothing kept them in step.
+
+    The release workflow's first real step compares the tag against
+    `pyproject.toml` and stops the release if they differ — so pyproject is the
+    one that gets remembered, and the other three quietly rot. A plugin that
+    reports 0.3.0 from a 0.4.0 install is not fatal, but it is the kind of wrong
+    that makes someone doubt everything else the manifest says.
+    """
+    import json
+    from pathlib import Path
+
+    path = Path(__file__).resolve().parent.parent / manifest
+    if not path.exists():  # pragma: no cover - sdist prunes .claude-plugin
+        pytest.skip(f"{manifest} not present")
+
+    node = json.loads(path.read_text())
+    for key in pointer:
+        node = node[key]
+
+    assert node == project["version"], (
+        f"{manifest} says {node}, pyproject.toml says {project['version']}"
+    )
+
+
 def test_server_help_reports_the_name_it_was_invoked_as(capsys):
     """argparse must not hardcode `prog`. The same entry point is installed
     under two names, so a hardcoded one prints usage for a command the reader

@@ -1,7 +1,7 @@
 {
   "name": "clops",
   "description": "Long-running, multi-step Claude Code workflows, written in Python and run one focused step at a time.",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "author": {
     "name": "Wesley Harding"
   },
