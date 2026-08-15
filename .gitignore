@@ -12,14 +12,7 @@ build/
 # Agent scratch space — full repo copies, not source.
 .claude/worktrees/
 
-# Real secrets for the deployment examples. `.env.example` is the tracked one.
-.env
-.env.secrets
-deploy/**/.env
 
-# Locally-built wheels staged into a deploy build context — build output, and
-# large. See deploy/context-forge/Dockerfile.clops.local.
-deploy/**/wheels/
 
 # Working notes. Kept on disk because they are genuinely useful, kept out of
 # git because a repo publishes everything forever — including anything you
