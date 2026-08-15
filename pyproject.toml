@@ -48,11 +48,11 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/wesley-harding/clops"
-Repository = "https://github.com/wesley-harding/clops"
-Documentation = "https://github.com/wesley-harding/clops/tree/main/docs"
-Issues = "https://github.com/wesley-harding/clops/issues"
-Changelog = "https://github.com/wesley-harding/clops/releases"
+Homepage = "https://github.com/clops-mcp/clops-mcp"
+Repository = "https://github.com/clops-mcp/clops-mcp"
+Documentation = "https://github.com/clops-mcp/clops-mcp/tree/main/docs"
+Issues = "https://github.com/clops-mcp/clops-mcp/issues"
+Changelog = "https://github.com/clops-mcp/clops-mcp/releases"
 
 [project.optional-dependencies]
 dev = [

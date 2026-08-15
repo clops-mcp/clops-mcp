@@ -1,3 +1,5 @@
+<!-- mcp-name: io.github.clops-mcp/clops-mcp -->
+
 # clops
 
 Long-running, multi-step Claude Code workflows, written in Python and run one
@@ -97,7 +99,7 @@ uv tool install clops-mcp
 
 > **Not published yet.** `clops-mcp` is not on PyPI as of this writing. Until it
 > is, install from the repo — same command shape, same result:
-> `uv tool install git+https://github.com/wesley-harding/clops`
+> `uv tool install git+https://github.com/clops-mcp/clops-mcp`
 
 **Set up a project.** From your project root:
 
@@ -267,12 +269,12 @@ Links are absolute so they also resolve from the PyPI project page.
 
 | Doc | What it covers |
 |-----|---------------|
-| [Philosophy](https://github.com/wesley-harding/clops/blob/main/docs/philosophy.md) | How to decompose work into Ops. Read this before writing a library. |
-| [Concepts](https://github.com/wesley-harding/clops/blob/main/docs/concepts.md) | Reference for the five primitives and the registry |
-| [Patterns](https://github.com/wesley-harding/clops/blob/main/docs/patterns.md) | Common library shapes and when to reach for each |
-| [Examples](https://github.com/wesley-harding/clops/blob/main/docs/examples.md) | Worked examples, simple to complex |
-| [Combinators](https://github.com/wesley-harding/clops/blob/main/docs/combinators.md) | `sequence`, `branch_on`, `gather`, `loop` reference |
-| [Authoring Spec](https://github.com/wesley-harding/clops/blob/main/authoring-spec.md) | Full authoring reference |
+| [Philosophy](https://github.com/clops-mcp/clops-mcp/blob/main/docs/philosophy.md) | How to decompose work into Ops. Read this before writing a library. |
+| [Concepts](https://github.com/clops-mcp/clops-mcp/blob/main/docs/concepts.md) | Reference for the five primitives and the registry |
+| [Patterns](https://github.com/clops-mcp/clops-mcp/blob/main/docs/patterns.md) | Common library shapes and when to reach for each |
+| [Examples](https://github.com/clops-mcp/clops-mcp/blob/main/docs/examples.md) | Worked examples, simple to complex |
+| [Combinators](https://github.com/clops-mcp/clops-mcp/blob/main/docs/combinators.md) | `sequence`, `branch_on`, `gather`, `loop` reference |
+| [Authoring Spec](https://github.com/clops-mcp/clops-mcp/blob/main/authoring-spec.md) | Full authoring reference |
 
 ## CLI
 
@@ -323,7 +325,7 @@ The plugin installs clops's authoring and orchestration skills globally. It does
 owns that, so the two never conflict.
 
 ```bash
-claude plugin marketplace add wesley-harding/clops
+claude plugin marketplace add clops-mcp/clops-mcp
 claude plugin install clops
 ```
 
@@ -337,15 +339,15 @@ claude plugin install clops
 ## From source
 
 ```bash
-git clone https://github.com/wesley-harding/clops
-cd clops
+git clone https://github.com/clops-mcp/clops-mcp
+cd clops-mcp
 uv sync
 uv run pytest
 ```
 
 > Installing from a fork or a pinned tag? Set `CLOPS_INSTALL_SPEC` before
 > running `clops init` — e.g.
-> `export CLOPS_INSTALL_SPEC='git+ssh://git@github.com/wesley-harding/clops'` —
+> `export CLOPS_INSTALL_SPEC='git+ssh://git@github.com/clops-mcp/clops-mcp'` —
 > and `init` bakes it into the generated `.mcp.json` and hook.
 
 ## Sharing Ops

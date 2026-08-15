@@ -50,10 +50,10 @@ MCP_SERVER_NAME = naming.DEFAULT_SERVER_NAME
 PYPI_NAME = "clops-mcp"
 # clops-mcp is not on PyPI yet — the runtime installs straight from the
 # (private) GitHub repo. Override with CLOPS_INSTALL_SPEC to change the source,
-# e.g. an SSH URL (`git+ssh://git@github.com/wesley-harding/clops`), a pinned
-# ref (`git+https://github.com/wesley-harding/clops@v0.2.0`), or the PyPI
+# e.g. an SSH URL (`git+ssh://git@github.com/clops-mcp/clops-mcp`), a pinned
+# ref (`git+https://github.com/clops-mcp/clops-mcp@v0.2.0`), or the PyPI
 # package (`clops-mcp==0.3.0`) once it's published.
-GIT_REPO = "git+https://github.com/wesley-harding/clops"
+GIT_REPO = "git+https://github.com/clops-mcp/clops-mcp"
 GITIGNORE_LINE = ".claude/.clops/"
 
 

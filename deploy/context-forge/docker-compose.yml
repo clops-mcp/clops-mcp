@@ -22,7 +22,7 @@ x-clops-agent: &clops-agent
     dockerfile: Dockerfile.clops
     args:
       # Point at a tag/branch, or `clops-mcp==0.3.0` once published.
-      CLOPS_SPEC: ${CLOPS_SPEC:-git+https://github.com/wesley-harding/clops}
+      CLOPS_SPEC: ${CLOPS_SPEC:-git+https://github.com/clops-mcp/clops-mcp}
   # No `ports:` on purpose. Agents are reachable only by the gateway, over the
   # compose network. Publishing one to the host would put an unauthenticated
   # write path into run state on your network: the bridge does no auth of its

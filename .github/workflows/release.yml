@@ -10,8 +10,8 @@ name: Release
 # One-time PyPI setup (trusted publishing — no token stored in the repo):
 #   PyPI → your project (or "pending publisher") → Publishing → add a
 #   GitHub Actions publisher:
-#     Owner:    wesley-harding
-#     Repo:     clops
+#     Owner:    clops-mcp
+#     Repo:     clops-mcp
 #     Workflow: release.yml
 #     Environment: (leave blank — this workflow does not use one)
 #   See https://docs.pypi.org/trusted-publishers/

@@ -12,7 +12,7 @@ FROM python:3.12-slim
 #   --build-arg CLOPS_SPEC=clops-mcp==0.3.0
 # Note the repo must be public (or the build must carry credentials) for this
 # to resolve.
-ARG CLOPS_SPEC=git+https://github.com/wesley-harding/clops
+ARG CLOPS_SPEC=git+https://github.com/clops-mcp/clops-mcp
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends git \

@@ -2,7 +2,7 @@
 # of pulling from a git URL.
 #
 # Why this exists: `Dockerfile.clops` installs `${CLOPS_SPEC}`, which defaults to
-# `git+https://github.com/wesley-harding/clops`. That only resolves once the repo
+# `git+https://github.com/clops-mcp/clops-mcp`. That only resolves once the repo
 # is public. Until then — and any time you want to test an uncommitted change —
 # build the wheel and install that:
 #

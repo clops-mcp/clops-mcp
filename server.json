@@ -1,10 +1,10 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-07-09/server.schema.json",
-  "name": "io.github.wesley-harding/clops-mcp",
-  "description": "Runtime for LLM-bodied functions (Ops). Configure libraries in a .clops file.",
+  "name": "io.github.clops-mcp/clops-mcp",
+  "description": "Long-running, multi-step Claude Code workflows, written in Python and run one focused step at a time.",
   "status": "active",
   "repository": {
-    "url": "https://github.com/wesley-harding/clops",
+    "url": "https://github.com/clops-mcp/clops-mcp",
     "source": "github"
   },
   "version": "0.3.0"
