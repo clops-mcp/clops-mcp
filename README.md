@@ -97,9 +97,9 @@ so `pip install clops` gets you somebody else's package.
 uv tool install clops-mcp
 ```
 
-> **Not published yet.** `clops-mcp` is not on PyPI as of this writing. Until it
-> is, install from the repo — same command shape, same result:
-> `uv tool install git+https://github.com/clops-mcp/clops-mcp`
+`uvx clops-mcp` runs the MCP server without installing anything, which is what
+the generated `.mcp.json` does — so a fresh clone of a clops project needs `uv`
+and nothing else.
 
 **Set up a project.** From your project root:
 

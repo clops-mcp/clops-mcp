@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 
 from clops.cli.init import (
-    GIT_REPO,
+    DEFAULT_INSTALL_SPEC,
     GITIGNORE_LINE,
     HOOK_COMMAND,
     MCP_SERVER_NAME,
@@ -45,10 +45,17 @@ def test_build_mcp_json_plain_libraries():
     assert "--with" not in server["args"]
 
 
-def test_install_spec_defaults_to_github_repo(monkeypatch):
+def test_install_spec_defaults_to_the_pypi_distribution(monkeypatch):
+    """A generated project must be installable by someone with nothing but uv.
+
+    This defaulted to `git+https://github.com/clops-mcp/clops-mcp` while the
+    package was unpublished, which quietly required git — and, while the repo
+    was private, repo access as well. `clops-mcp` is the distribution name; the
+    obvious guess, `clops`, is an unrelated project on PyPI.
+    """
     monkeypatch.delenv("CLOPS_INSTALL_SPEC", raising=False)
-    assert install_spec() == GIT_REPO
-    assert GIT_REPO.startswith("git+")
+    assert install_spec() == DEFAULT_INSTALL_SPEC == "clops-mcp"
+    assert not install_spec().startswith("git+")
 
 
 def test_install_spec_env_override(monkeypatch):

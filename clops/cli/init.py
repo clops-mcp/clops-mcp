@@ -48,28 +48,29 @@ SKILL_SRC = PLUGIN_DIR / "skills" / "clops-orchestration" / "SKILL.md"
 # a locally-installed clops and a hosted one don't both claim `mcp__clops__*`.
 MCP_SERVER_NAME = naming.DEFAULT_SERVER_NAME
 PYPI_NAME = "clops-mcp"
-# clops-mcp is not on PyPI yet — the runtime installs straight from the
-# (private) GitHub repo. Override with CLOPS_INSTALL_SPEC to change the source,
-# e.g. an SSH URL (`git+ssh://git@github.com/clops-mcp/clops-mcp`), a pinned
-# ref (`git+https://github.com/clops-mcp/clops-mcp@v0.2.0`), or the PyPI
-# package (`clops-mcp==0.3.0`) once it's published.
-GIT_REPO = "git+https://github.com/clops-mcp/clops-mcp"
+# `clops` on PyPI is an unrelated project; the distribution name is the one
+# thing here that must not drift.
+DEFAULT_INSTALL_SPEC = PYPI_NAME
 GITIGNORE_LINE = ".claude/.clops/"
 
 
 def install_spec() -> str:
     """The ``uvx --from`` target for the clops runtime.
 
-    Defaults to the GitHub repo (default branch) since ``clops-mcp`` isn't
-    published to PyPI yet. ``CLOPS_INSTALL_SPEC`` overrides it entirely — set it
-    to an SSH URL, a pinned ``@<ref>``, or the PyPI spec once published. Using a
-    single source keeps a project's generated MCP server + hook on the same
-    clops build.
+    Defaults to the PyPI distribution, so a generated project needs nothing but
+    ``uv``. ``CLOPS_INSTALL_SPEC`` overrides it entirely, and the three cases
+    that matter are a pinned release (``clops-mcp==0.3.0``), a git ref
+    (``git+https://github.com/clops-mcp/clops-mcp@v0.3.0``), and a local
+    checkout (``/path/to/clops``) when you are working on clops itself.
+
+    One spec, not two, because the generated MCP server and the generated hook
+    both read it — pointing them at different builds is a class of bug that is
+    very hard to see from inside a run.
     """
     override = os.environ.get("CLOPS_INSTALL_SPEC")
     if override:
         return override
-    return GIT_REPO
+    return DEFAULT_INSTALL_SPEC
 
 
 HOOK_COMMAND = f"uvx --from {install_spec()} clops-hook"
