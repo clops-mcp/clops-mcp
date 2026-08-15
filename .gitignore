@@ -16,3 +16,7 @@ build/
 .env
 .env.secrets
 deploy/**/.env
+
+# Locally-built wheels staged into a deploy build context — build output, and
+# large. See deploy/context-forge/Dockerfile.clops.local.
+deploy/**/wheels/
