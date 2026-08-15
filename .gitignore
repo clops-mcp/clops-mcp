@@ -20,3 +20,8 @@ deploy/**/.env
 # Locally-built wheels staged into a deploy build context — build output, and
 # large. See deploy/context-forge/Dockerfile.clops.local.
 deploy/**/wheels/
+
+# Working notes. Kept on disk because they are genuinely useful, kept out of
+# git because a repo publishes everything forever — including anything you
+# delete later. If a note is meant for readers, it goes in docs/ instead.
+internal/

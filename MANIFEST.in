@@ -13,11 +13,10 @@ graft tests
 
 graft examples
 
-# Docs are listed one by one, NOT grafted. `docs/` also holds internal strategy
-# and research — vision.md, ecosystem-strategy.md, deployment-research.md,
-# candid vendor comparisons, notes from running this at work. An sdist on PyPI
-# is public and permanent; a `graft docs` would publish all of it. These six are
-# the ones the README links, i.e. the ones written for users.
+# Docs are listed one by one, NOT grafted. Not everything in `docs/` is written
+# for users, and an sdist on PyPI is public and permanent — a `graft docs` would
+# ship whatever happens to be sitting there the day you cut a release. These six
+# are the ones the README links.
 include docs/philosophy.md
 include docs/concepts.md
 include docs/patterns.md
@@ -41,3 +40,8 @@ prune code_review
 # Deployment examples are for people reading the repo, not for people who
 # `pip install clops-mcp`.
 prune deploy
+# Never-public working notes. `internal/` is gitignored, but an sdist is built
+# from the working directory rather than from git — so .gitignore alone would
+# not stop it shipping. Belt and braces, on the one directory where the cost of
+# being wrong is permanent.
+prune internal

@@ -1,8 +1,7 @@
 # clops over HTTP, behind ContextForge
 
-A minimal, runnable example of the thing `docs/deployment-research.md` spent a
-long time deciding: **clops reachable over HTTP instead of stdio**, with a
-gateway in front doing auth and routing.
+A minimal, runnable example of **clops reachable over HTTP instead of stdio**,
+with a gateway in front doing auth and routing.
 
 ```
   you ──HTTP──▶  gateway (ContextForge)  ──┬──▶  clops-support   business_designer
@@ -232,9 +231,9 @@ Then `./register-clops.sh clops-review`. One gateway, three agents, separate Op
 sets — and the gateway's RBAC decides who reaches which.
 
 The library needs at least one Op with `entry = True`; only those are surfaced by
-`list_processes`. It also needs a `Meta` string on every Op —
-`clops.stdlib.code_review` is currently *not* usable as a third agent for exactly
-this reason, and fails at import.
+`list_processes`. It also needs a `Meta` string on every Op, or the library fails
+at import — `clops.stdlib.code_review` was unusable for exactly that reason until
+its Meta strings were written.
 
 ---
 
@@ -251,25 +250,27 @@ Being explicit, because each of these is a real gap rather than an omission:
    contract through a Unix socket on the *client* machine
    (`clops/runtime/hook_server.py`). Nothing in this stack carries it, so a
    subagent that ends its turn without calling `complete` is not caught. The
-   server logs `SubagentStop enforcement disabled` and continues. See
-   `docs/deployment-research.md` §4.1.
+   server logs `SubagentStop enforcement disabled` and continues. Re-pointing the
+   hook at an HTTP endpoint is a small change — `decide()` is already pure and
+   transport-agnostic — but it is not done.
 3. **Run state is in memory, and dies with the container.** Fine for one instance
-   per agent, which is the intended shape (§3.2). Do not scale a single agent to
+   per agent, which is the intended shape here. Do not scale a single agent to
    two replicas expecting them to share runs.
 4. **Auth here is the gateway's own JWT/admin login, not OIDC.** ContextForge
    supports OIDC federation (Google, GitHub, Entra, Keycloak); wiring it is a
    deployment decision this example doesn't make for you.
-5. **The gateway cannot scope which Ops an agent exposes** — that's what
-   `--library` is for (§5.2). It *can* gate who may call which Op, via a
-   `tool_pre_invoke` plugin reading `start_process`'s `process` argument (§5.3),
-   which is not set up here.
+5. **The gateway cannot scope which Ops an agent exposes** — that is what
+   `--library` is for. It *can* gate who may call which Op, via a
+   `tool_pre_invoke` plugin reading `start_process`'s `process` argument, which
+   is not set up here.
 6. **SQLite, single node.** Add Postgres and Redis before running more than one
    gateway replica.
 
 ## If you deploy this somewhere real
 
-`docs/deployment-research.md` §5.6 covers the Aptible shape (Procfile services,
-internal endpoints) and §5.7 covers why a FastMCP wrapper may beat a separate
-gateway when you only have two or three agents. §5.8 is the short version of how
-that decision moved. This example exists because ContextForge is the option that
-gives you the most for free while you're still finding out what you need.
+A gateway is not the only shape. On a Heroku-style PaaS — Aptible, Fly, Render —
+the agents become Procfile services on internal endpoints, and a FastMCP wrapper
+inside your existing app may beat running a separate gateway app when you only
+have two or three agents. ContextForge earns its place here because it gives you
+the most for free while you are still finding out what you need: a UI, a tool
+catalogue, RBAC, and OIDC federation you did not have to write.

@@ -25,7 +25,8 @@ x-clops-agent: &clops-agent
       CLOPS_SPEC: ${CLOPS_SPEC:-git+https://github.com/wesley-harding/clops}
   # No `ports:` on purpose. Agents are reachable only by the gateway, over the
   # compose network. Publishing one to the host would put an unauthenticated
-  # write path into run state on your network — see docs/deployment-research.md §2.
+  # write path into run state on your network: the bridge does no auth of its
+  # own, so anyone who can reach :9000 can start, drive, or abort a run.
   expose:
     - "9000"
   restart: unless-stopped
@@ -96,8 +97,8 @@ services:
     <<: *clops-agent
     environment:
       # The only meaningful difference from clops-support. Same image, different
-      # Op set — `clops.stdlib.code_review` would be the obvious third, but it
-      # does not import yet (its Ops are missing their required `Meta` strings).
+      # Op set. `clops.stdlib.code_review` is the obvious third — add it the same
+      # way, with a matching CLOPS_TOOL_PATTERN and its own register-clops.sh run.
       CLOPS_LIBRARY: clops.stdlib.session_analyzer
       CLOPS_PORT: "9000"
       CLOPS_TOOL_PATTERN: clops-session-{name_hyphenated}
