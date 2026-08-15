@@ -8,7 +8,7 @@ build-backend = "setuptools.build_meta"
 # (`clops` on PyPI is an unrelated package, so the distribution is `clops-mcp`).
 name = "clops-mcp"
 version = "0.3.0"
-description = "A runtime for LLM-bodied functions, exposed to Claude Code via MCP."
+description = "Long-running, multi-step Claude Code workflows, written in Python and run one focused step at a time."
 readme = "README.md"
 requires-python = ">=3.11"
 authors = [{ name = "Wesley Harding" }]
