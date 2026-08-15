@@ -66,13 +66,43 @@ jobs:
         run: |
           uv venv /tmp/smoke --python 3.12
           VIRTUAL_ENV=/tmp/smoke uv pip install --no-cache dist/*.whl
-          /tmp/smoke/bin/python - <<'PY'
-          import importlib.metadata as md
+          # -P is load-bearing. `python -` puts the CURRENT DIRECTORY on
+          # sys.path, and this job runs from the repo checkout — so `import
+          # clops` resolves to ./clops/, the source tree, and this entire step
+          # silently tests the thing it was written to not test. -P (3.11+)
+          # drops the cwd entry; the assertion below proves it worked rather
+          # than trusting it.
+          /tmp/smoke/bin/python -P - <<'PY'
+          import importlib, importlib.metadata as md, pkgutil
+          import clops
+          # "site-packages", not a /tmp/smoke prefix: the venv path is resolved
+          # differently across platforms (macOS turns /tmp into /private/tmp),
+          # and what actually matters is that this came from an install rather
+          # than from a checkout.
+          assert "site-packages" in clops.__file__, (
+              f"imported clops from {clops.__file__} — expected the installed "
+              "wheel. The source tree is shadowing it."
+          )
           import clops.runtime.mcp_server  # constructs against the resolved mcp
           import clops.cli.init as init
+          print("clops imported from", clops.__file__)
           print("mcp resolved to", md.version("mcp"))
           assert init.CLOPS_EXECUTOR_SRC.exists(), "packaged agent .md missing from wheel"
           assert init.SKILL_SRC.exists(), "packaged skill .md missing from wheel"
+
+          # Every stdlib library must import *from the installed wheel*. Two
+          # distinct failures hide here, both release-blocking and both
+          # invisible until someone installs the thing: a library whose files
+          # never made it into the wheel, and a library that raises on import
+          # regardless of packaging. `code_review` shipped in the second state
+          # — every one of its Ops was missing the required `Meta` string, so
+          # importing it raised TypeError — and nothing in this job noticed.
+          import clops.stdlib
+          libs = [m.name for m in pkgutil.iter_modules(clops.stdlib.__path__)]
+          assert libs, "no stdlib libraries in the wheel"
+          for name in libs:
+              importlib.import_module(f"clops.stdlib.{name}")
+          print("stdlib libraries import:", ", ".join(sorted(libs)))
           PY
           /tmp/smoke/bin/clops --help > /dev/null
           # NB: don't invoke clops-server/clops-hook here — they have no --help
