@@ -260,21 +260,17 @@ Version 0.3.0, alpha, one author. Specifically:
   `landscape_intelligence` Snippet before two of its Ops will dispatch, and
   `code_review`'s per-file assessment step doesn't yet receive the diff it is
   meant to assess (see the pipeline note above). Beyond that you write your own.
-- **Docs run ahead of the runtime in places.** Where `docs/` and the code
-  disagree, the code is right. File an issue.
+- **Long-form docs are still being written.** `authoring-spec.md` is the
+  reference for now. Where anything written disagrees with the code, the code is
+  right. File an issue.
 
 ## Documentation
 
-Links are absolute so they also resolve from the PyPI project page.
-
 | Doc | What it covers |
 |-----|---------------|
-| [Philosophy](https://github.com/clops-mcp/clops-mcp/blob/main/docs/philosophy.md) | How to decompose work into Ops. Read this before writing a library. |
-| [Concepts](https://github.com/clops-mcp/clops-mcp/blob/main/docs/concepts.md) | Reference for the five primitives and the registry |
-| [Patterns](https://github.com/clops-mcp/clops-mcp/blob/main/docs/patterns.md) | Common library shapes and when to reach for each |
-| [Examples](https://github.com/clops-mcp/clops-mcp/blob/main/docs/examples.md) | Worked examples, simple to complex |
-| [Combinators](https://github.com/clops-mcp/clops-mcp/blob/main/docs/combinators.md) | `sequence`, `branch_on`, `gather`, `loop` reference |
-| [Authoring Spec](https://github.com/clops-mcp/clops-mcp/blob/main/authoring-spec.md) | Full authoring reference |
+| [Authoring Spec](https://github.com/clops-mcp/clops-mcp/blob/main/authoring-spec.md) | Full authoring reference — the five primitives, combinators, and the rules the linter enforces |
+
+The link is absolute so it also resolves from the PyPI project page.
 
 ## CLI
 

@@ -13,15 +13,11 @@ graft tests
 
 graft examples
 
-# Docs are listed one by one, NOT grafted. Not everything in `docs/` is written
-# for users, and an sdist on PyPI is public and permanent — a `graft docs` would
-# ship whatever happens to be sitting there the day you cut a release. These six
-# are the ones the README links.
-include docs/philosophy.md
-include docs/concepts.md
-include docs/patterns.md
-include docs/examples.md
-include docs/combinators.md
+# Docs get listed one by one, NOT grafted. Not everything written ends up being
+# written *for users*, and an sdist on PyPI is public and permanent — a
+# `graft docs` would ship whatever happened to be sitting there the day someone
+# cut a release. `docs/` is being rewritten and is out of the tree for now; add
+# each file back here as it lands.
 include authoring-spec.md
 
 include server.json
