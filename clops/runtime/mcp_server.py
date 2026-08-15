@@ -514,12 +514,29 @@ def build_server_from_argv(argv: list[str]) -> FlowServer:
             f"Default: {naming.DEFAULT_SERVER_NAME}."
         ),
     )
+    parser.add_argument(
+        "--tool-pattern",
+        default=os.environ.get("CLOPS_TOOL_PATTERN") or naming.DEFAULT_TOOL_PATTERN,
+        help=(
+            "How this server's tools are named on the client, as a template over "
+            "{server} and {name} (plus {server_hyphenated}/{name_hyphenated}). "
+            "The default is the Claude Code convention. Override it when a gateway "
+            "renames tools in between — IBM ContextForge exposes `complete` as "
+            "`clops-support-complete`, so it needs "
+            "'clops-support-{name_hyphenated}'. Also settable as "
+            f"CLOPS_TOOL_PATTERN. Default: {naming.DEFAULT_TOOL_PATTERN}"
+        ),
+    )
     ns = parser.parse_args(argv)
 
-    # Set before anything renders a prompt: dispatch text and the hook's block
-    # message both name tools by this prefix, and naming the wrong one tells a
+    # Both set before anything renders a prompt: dispatch text and the hook's
+    # block message name tools by these, and naming the wrong one tells a
     # subagent to call something that does not exist.
     naming.set_server_name(ns.server_name)
+    try:
+        naming.set_tool_pattern(ns.tool_pattern)
+    except ValueError as exc:
+        parser.error(str(exc))
 
     project_dir = Path(ns.project_dir) if ns.project_dir else None
     resolved_dir = resolve_project_dir(project_dir)

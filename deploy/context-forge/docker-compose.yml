@@ -75,6 +75,16 @@ services:
     environment:
       CLOPS_LIBRARY: ${CLOPS_LIBRARY:-clops.stdlib.business_designer}
       CLOPS_PORT: "9000"
+      # The gateway rewrites tool names — `complete` is re-exposed as
+      # `clops-support-complete` — but clops writes tool names *into the
+      # dispatch prompts it returns*. Without this the prompts name
+      # `mcp__clops__complete`, which is not on the subagent's tool list, and
+      # every multi-step run stalls at its first step.
+      #
+      # The prefix must match the name this agent is registered under
+      # (`./register-clops.sh clops-support`), because that is what the gateway
+      # builds tool names from.
+      CLOPS_TOOL_PATTERN: clops-support-{name_hyphenated}
       # `mcpgateway.translate` imports mcpgateway.config, which validates these
       # at import time — so the *bridge* needs them too, not just the gateway.
       # Found by running it: without these the agent container dies at startup
@@ -85,11 +95,12 @@ services:
   clops-session:
     <<: *clops-agent
     environment:
-      # The only difference from clops-support. Same image, different Op set —
-      # `clops.stdlib.code_review` would be the obvious third, but it does not
-      # import yet (its Ops are missing their required `Meta` strings).
+      # The only meaningful difference from clops-support. Same image, different
+      # Op set — `clops.stdlib.code_review` would be the obvious third, but it
+      # does not import yet (its Ops are missing their required `Meta` strings).
       CLOPS_LIBRARY: clops.stdlib.session_analyzer
       CLOPS_PORT: "9000"
+      CLOPS_TOOL_PATTERN: clops-session-{name_hyphenated}
       JWT_SECRET_KEY: ${JWT_SECRET_KEY:?set JWT_SECRET_KEY in .env}
       AUTH_ENCRYPTION_SECRET: ${AUTH_ENCRYPTION_SECRET:?set AUTH_ENCRYPTION_SECRET in .env}
 

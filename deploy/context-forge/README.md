@@ -33,40 +33,48 @@ environment variable.
 > ContextForge's README says arm64 is unsupported in production; the GHCR image
 > nonetheless came up healthy and stayed healthy here.
 >
-> **One thing is broken and is not a configuration problem** — see
-> [The tool names do not match](#the-tool-names-do-not-match). Discovery and
-> invocation work; multi-step *runs* will stall.
+> Running this also surfaced a genuine clops bug and drove the fix — see
+> [Tool names, and why `CLOPS_TOOL_PATTERN` exists](#tool-names-and-why-clops_tool_pattern-exists).
 
 ---
 
-## The tool names do not match
+## Tool names, and why `CLOPS_TOOL_PATTERN` exists
 
 The gateway rewrites every tool name it proxies. clops publishes `list_processes`;
 the gateway exposes it as `clops-support-list-processes` — its own prefix,
 hyphens for underscores, **no `mcp__` at all**.
 
-That is fine for discovery, and it is fine for one-shot calls. It breaks runs,
-because clops writes tool names *into the prompts it returns*:
+That is fine for discovery and fine for one-shot calls. It broke *runs*, because
+clops writes tool names into the prompts it returns:
 
 ```
-$ curl ... -d '{"method":"clops-support-start-process", ...}'
-
-  "Call mcp__clops__complete(execution_id, output) or
-   mcp__clops__need(execution_id, reason) before ending your turn."
+"Call mcp__clops__complete(execution_id, output) or
+ mcp__clops__need(execution_id, reason) before ending your turn."
 ```
 
-A subagent driven through the gateway is being told to call
-`mcp__clops__complete`, which does not exist on its tool list. The real name is
-`clops-support-complete`. **Every multi-step run stalls at the first step.**
+A subagent driven through the gateway was being told to call
+`mcp__clops__complete`, which is not on its tool list — so every multi-step run
+stalled at its first step. Discovery worked, which is what made it easy to miss.
 
-`--server-name` does not fix this. It changes the middle segment of
-`mcp__<name>__<tool>`, but the gateway's scheme isn't that shape — `mcp__X__Y` is
-a *Claude Code* convention for naming MCP tools locally, not something MCP or the
-gateway agree to. The fix is for clops to learn the literal naming pattern its
-client will see, rather than assuming one. Nothing here works around it.
+`--server-name` could not fix it: that varies the middle of
+`mcp__<name>__<tool>`, and the gateway's scheme is not that shape. `mcp__X__Y` is
+a **Claude Code convention**, not part of MCP, and clops had it hardcoded.
 
-Stdio clients are unaffected: Claude Code connecting directly to `clops-server`
-sees `mcp__clops__complete`, which is exactly right.
+So `clops-server` grew `--tool-pattern` (env: `CLOPS_TOOL_PATTERN`), a template
+over `{server}` and `{name}` plus `_hyphenated` variants of each. The default is
+unchanged — `mcp__{server}__{name}` — because that is what almost every client
+actually is. This compose file sets, per agent:
+
+```yaml
+CLOPS_TOOL_PATTERN: clops-support-{name_hyphenated}
+```
+
+The prefix must match the name the agent is **registered** under, since that is
+what the gateway builds tool names from. Verified against this stack: every tool
+named in a dispatch prompt now resolves against the gateway's 22-tool catalogue.
+
+Stdio clients need none of this. Claude Code talking directly to `clops-server`
+sees `mcp__clops__complete`, which is exactly right, and gets it by default.
 
 ---
 
@@ -205,6 +213,8 @@ Point `CLOPS_LIBRARY` at your module and make sure it's installed in the image:
     environment:
       CLOPS_LIBRARY: my_review_ops
       CLOPS_PORT: "9000"
+      # Must match the name you register it under, below.
+      CLOPS_TOOL_PATTERN: clops-review-{name_hyphenated}
       JWT_SECRET_KEY: ${JWT_SECRET_KEY:?}
       AUTH_ENCRYPTION_SECRET: ${AUTH_ENCRYPTION_SECRET:?}
 ```
@@ -232,8 +242,11 @@ this reason, and fails at import.
 
 Being explicit, because each of these is a real gap rather than an omission:
 
-1. **Tool names are wrong through the gateway** — see above. This is the one that
-   makes runs fail rather than merely limiting them.
+1. **`CLOPS_TOOL_PATTERN` has to be kept in step with the registered name by
+   hand.** Nothing checks that the pattern an agent renders matches what the
+   gateway actually exposes; rename a service without updating both and runs
+   stall again, silently. Reconciling the two automatically would mean clops
+   asking the gateway what it is called, which it has no way to do.
 2. **The SubagentStop hook does not work here.** clops enforces its completion
    contract through a Unix socket on the *client* machine
    (`clops/runtime/hook_server.py`). Nothing in this stack carries it, so a
