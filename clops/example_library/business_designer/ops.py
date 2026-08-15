@@ -2,7 +2,7 @@
 
 from clops import Op, SnippetRole, gather, sequence
 
-from clops.stdlib.business_designer.concepts import (
+from clops.example_library.business_designer.concepts import (
     AgentDefinitions,
     AgentOptions,
     BusinessContext,
@@ -14,7 +14,7 @@ from clops.stdlib.business_designer.concepts import (
     ScopedProcesses,
     SelectedDesigns,
 )
-from clops.stdlib.business_designer.snippets import (
+from clops.example_library.business_designer.snippets import (
     decision_journal,
     failure_mode_forcing,
     high_achiever_bar,

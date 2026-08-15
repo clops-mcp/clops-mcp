@@ -9,6 +9,6 @@ Three-diamond flow for architecting business processes as agent systems:
 Entry point: DesignBusinessAgents
 """
 
-from clops.stdlib.business_designer import concepts, snippets, ops  # noqa: F401
+from clops.example_library.business_designer import concepts, snippets, ops  # noqa: F401
 
 __all__ = ["concepts", "snippets", "ops"]

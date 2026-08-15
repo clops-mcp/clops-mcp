@@ -1,13 +1,13 @@
 """Ops -- process reflection and thinking extraction from sessions."""
 
 from clops import Op, SnippetRole, sequence
-from clops.stdlib.session_analyzer.concepts import (
+from clops.example_library.session_analyzer.concepts import (
     ImprovementPlan,
     ParsedSession,
     SessionTranscript,
 )
-from clops.stdlib.session_analyzer.snippets import evaluation_criteria, op_design_principles
-from clops.stdlib.session_analyzer.tools import load_session, parse_transcript, summarize_session
+from clops.example_library.session_analyzer.snippets import evaluation_criteria, op_design_principles
+from clops.example_library.session_analyzer.tools import load_session, parse_transcript, summarize_session
 
 
 # ---------------------------------------------------------------------------

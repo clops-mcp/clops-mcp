@@ -2,13 +2,13 @@
 
 from clops import Op, SnippetRole
 
-from clops.stdlib.core.concepts import (
+from clops.example_library.core.concepts import (
     DomainContext,
     ExpertSources,
     OrientedApproach,
     Topic,
 )
-from clops.stdlib.core.snippets import landscape_intelligence, source_quality
+from clops.example_library.core.snippets import landscape_intelligence, source_quality
 
 
 class Research(Op):

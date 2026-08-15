@@ -13,7 +13,7 @@ import importlib
 import pytest
 
 from clops.runtime.mcp_server import FlowServer, ServerConfig
-from clops.stdlib.code_review.tools import _grep_pattern, _read_file
+from clops.example_library.code_review.tools import _grep_pattern, _read_file
 
 
 DIFF = """\
@@ -50,10 +50,10 @@ def project(tmp_path, monkeypatch):
 def review_server():
     """A FlowServer with the code review library loaded into a clean registry."""
     # conftest clears the registry per test, so the library has to re-register.
-    importlib.reload(importlib.import_module("clops.stdlib.code_review.concepts"))
-    importlib.reload(importlib.import_module("clops.stdlib.code_review.snippets"))
-    importlib.reload(importlib.import_module("clops.stdlib.code_review.tools"))
-    importlib.reload(importlib.import_module("clops.stdlib.code_review.ops"))
+    importlib.reload(importlib.import_module("clops.example_library.code_review.concepts"))
+    importlib.reload(importlib.import_module("clops.example_library.code_review.snippets"))
+    importlib.reload(importlib.import_module("clops.example_library.code_review.tools"))
+    importlib.reload(importlib.import_module("clops.example_library.code_review.ops"))
     return FlowServer(ServerConfig())
 
 

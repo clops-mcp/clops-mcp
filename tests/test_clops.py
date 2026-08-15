@@ -540,7 +540,7 @@ def test_read_clops_config_tilde_expanded(tmp_path):
 
 def test_read_clops_config_mixed_plain_and_sourced(tmp_path):
     (tmp_path / CLOPS_FILENAME).write_text(
-        "clops.stdlib.core\n"
+        "clops.example_library.core\n"
         "work_ops @ /opt/work-ops\n"
         "shared @ git+https://github.com/co/shared\n"
         "\n"
@@ -548,7 +548,7 @@ def test_read_clops_config_mixed_plain_and_sourced(tmp_path):
         "env = production\n"
     )
     cfg = read_clops_config(tmp_path)
-    assert cfg.libraries == ["clops.stdlib.core", "work_ops", "shared"]
+    assert cfg.libraries == ["clops.example_library.core", "work_ops", "shared"]
     assert cfg.sources == ["/opt/work-ops", "git+https://github.com/co/shared"]
     assert cfg.constants == {"env": "production"}
 

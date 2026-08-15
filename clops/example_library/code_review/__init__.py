@@ -15,6 +15,6 @@ This library decomposes code review into focused thought-step Ops:
 Entry point: ReviewDiff
 """
 
-from clops.stdlib.code_review import concepts, snippets, tools, ops
+from clops.example_library.code_review import concepts, snippets, tools, ops
 
 __all__ = ["concepts", "snippets", "tools", "ops"]

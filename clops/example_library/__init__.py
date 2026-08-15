@@ -1,4 +1,4 @@
-"""clops.stdlib — reusable Ops, Concepts, Snippets, and Tools.
+"""clops.example_library — reusable Ops, Concepts, Snippets, and Tools.
 
 Structure:
   core/           — universally reusable (Research, Orient, common Concepts/Snippets)

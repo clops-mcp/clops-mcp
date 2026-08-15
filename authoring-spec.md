@@ -289,7 +289,7 @@ The `.clops` file in the project root lists libraries, external sources, and con
 ```
 # Plain module names (already importable).
 my_ops
-clops.stdlib.core
+clops.example_library.core
 
 # Libraries from a local path (installed via uv --with).
 work_ops @ ~/work/work-ops

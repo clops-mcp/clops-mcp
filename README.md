@@ -105,7 +105,7 @@ uv tool install clops-mcp
 
 ```bash
 mkdir demo && cd demo
-clops init --library clops.stdlib.session_analyzer
+clops init --library clops.example_library.session_analyzer
 ```
 
 That writes `.mcp.json` (the clops MCP server), `.clops` (the project's
@@ -118,7 +118,7 @@ the server through `uvx`.
 **Look at what you got.**
 
 ```bash
-clops show clops.stdlib.session_analyzer
+clops show clops.example_library.session_analyzer
 ```
 
 ```
@@ -254,7 +254,7 @@ Version 0.3.0, alpha, one author. Specifically:
   output — there is no implicit access to the run's original input from step
   five. If a later Op needs something from the top, an earlier Op has to put it
   in a `Store`. This catches people out; design for it.
-- **No shared library registry.** The stdlib ships four libraries — `core`,
+- **No shared library registry.** The bundled examples ship four libraries — `core`,
   `code_review`, `session_analyzer`, `business_designer` — and they are
   demonstrations, not products. `business_designer` needs you to supply a
   `landscape_intelligence` Snippet before two of its Ops will dispatch, and
