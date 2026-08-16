@@ -320,9 +320,11 @@ All four are non-interactive. `init` merges into an existing `.clops` and
 `.claude/settings.json`, and `new-library` refuses to overwrite an existing
 directory without `--force`.
 
-> **`clops init` overwrites `.mcp.json` wholesale.** If your project already
-> registers other MCP servers there, back the file up and merge the `clops`
-> entry back in by hand. This is a known rough edge, not intended behaviour.
+> **`clops init` overwrites `.mcp.json` wholesale.** Your clops libraries are
+> safe — the file is rebuilt from `.clops`, which merges, so adding a second
+> library keeps the first. But **other** MCP servers registered in that file are
+> lost. Back it up and merge them back in by hand. A known rough edge, not
+> intended behaviour.
 
 ## Project configuration
 
