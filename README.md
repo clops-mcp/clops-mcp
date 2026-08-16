@@ -276,7 +276,7 @@ like.
 
 ## What's rough
 
-Version 0.4.4, alpha, one author. Specifically:
+Version 0.4.5, alpha, one author. Specifically:
 
 - **The orchestrator is an LLM following a skill.** It is asked not to
   improvise, and mostly it doesn't, but "semi-deterministic" is the honest word.

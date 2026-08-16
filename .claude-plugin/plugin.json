@@ -1,7 +1,7 @@
 {
   "name": "clops",
   "description": "Long-running, multi-step Claude Code workflows, written in Python and run one focused step at a time.",
-  "version": "0.4.4",
+  "version": "0.4.5",
   "author": {
     "name": "Wesley Harding"
   },
@@ -13,6 +13,8 @@
     "clops": {
       "command": "uvx",
       "args": [
+        "--from",
+        "clops-mcp>=0.4.5",
         "clops-mcp",
         "--default-library",
         "clops.example_library.session_analyzer"

@@ -231,3 +231,51 @@ def test_the_plugin_ships_a_default_library(tmp_path):
     # own configuration.
     assert "--library" not in args
     assert any(a.startswith("clops.example_library.") for a in args)
+
+
+# ---- surviving a launcher newer than this build ----------------------
+
+
+def test_an_unknown_flag_does_not_kill_the_server(capsys):
+    """The plugin manifest ships from the repo's default branch and the package
+    from PyPI, so a manifest can name a flag whose release has not landed.
+
+    That happened: plugin 0.4.4 passed `--default-library`, which arrived in
+    0.4.5. argparse exited before the MCP handshake and the client reported
+    `-32000: Connection closed` — a symptom three levels away from the cause.
+
+    Degrading costs one feature. Exiting costs the whole server, in the least
+    debuggable way available.
+    """
+    from clops.runtime.mcp_server import build_server_from_argv
+
+    srv = build_server_from_argv(["--library", "clops.example_library.core", "--from-the-future"])
+    assert srv.config.libraries == ["clops.example_library.core"]
+
+    err = capsys.readouterr().err
+    assert "--from-the-future" in err
+    assert "older than whatever launched it" in err
+
+
+def test_known_flags_still_take_effect_alongside_an_unknown_one():
+    """Tolerating the unknown must not swallow the rest of the command line."""
+    from clops import naming
+    from clops.runtime.mcp_server import build_server_from_argv
+
+    # `--server-name` mutates module-level naming state that other tests read,
+    # and nothing here resets it automatically.
+    original = naming.server_name()
+    try:
+        srv = build_server_from_argv(
+            [
+                "--server-name",
+                "clops-support",
+                "--nonsense",
+                "--library",
+                "clops.example_library.core",
+            ]
+        )
+        assert srv.config.libraries == ["clops.example_library.core"]
+        assert naming.server_name() == "clops-support"
+    finally:
+        naming.set_server_name(original)
