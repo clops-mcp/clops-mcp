@@ -5,6 +5,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 from clops.cli.init import (
     DEFAULT_INSTALL_SPEC,
     GITIGNORE_LINE,
@@ -277,3 +279,29 @@ def test_default_mode_is_unchanged(tmp_path):
     assert (tmp_path / ".claude" / "agents" / "clops-executor.md").exists()
     assert (tmp_path / ".claude" / "skills" / "clops-orchestration" / "SKILL.md").exists()
     assert "mcp_json" in written
+
+
+# ---- the shipped skill, and its copies -------------------------------
+
+
+def test_smoke_test_fixtures_carry_the_shipped_skill():
+    """Eleven smoke-test projects each hold a copy of the orchestration skill,
+    because each is a self-contained project that `clops init` set up.
+
+    Eleven copies of one file is a drift factory, and a stale copy is worse
+    than no copy: the scenario then exercises instructions that do not ship,
+    and passes or fails for the wrong reason. Found exactly that after slimming
+    the skill — all eleven still held the old 50-line version.
+    """
+    from clops.cli.init import SKILL_SRC
+
+    root = Path(__file__).resolve().parent.parent
+    fixtures = sorted(
+        root.glob("smoke-tests/*/.claude/skills/clops-orchestration/SKILL.md")
+    )
+    if not fixtures:  # pragma: no cover - sdist prunes smoke-tests
+        pytest.skip("smoke-tests not present")
+
+    canonical = SKILL_SRC.read_text()
+    stale = [str(f.relative_to(root)) for f in fixtures if f.read_text() != canonical]
+    assert not stale, "these copies have drifted from the shipped skill: " + ", ".join(stale)
