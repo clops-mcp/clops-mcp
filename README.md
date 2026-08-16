@@ -143,7 +143,7 @@ To register the server by hand instead — in Cursor, Zed, or behind a gateway:
 }
 ```
 
-With no `--library`, the server reads `.clops` from the project directory.
+With no `--library`, the server reads `.clops` from the project directory. Add `--default-library clops.example_library.session_analyzer` to fall back to a bundled example when a project has not configured one — that is what the plugin does, so a fresh install has something to run.
 
 > **Mind the distribution name.** It is **`clops-mcp`**; the import package and
 > the CLI are both `clops`. `pip install clops` gets you an unrelated project.
@@ -358,7 +358,7 @@ this is what you get.
 
 | Component | What it does |
 |---|---|
-| MCP server `clops` | `uvx clops-mcp`, no `--library` — it reads each project's `.clops` |
+| MCP server `clops` | `uvx clops-mcp`, no `--library` — it reads each project's `.clops`, falling back to a bundled example when a project has none |
 | `SubagentStop` hook | Forwards the stop payload to the run's socket so the runtime sees step completion |
 | Skill `clops-orchestration` | The dispatch relay loop |
 | Agent `clops-executor` | The subagent template each step is dispatched to |

@@ -141,3 +141,93 @@ def test_the_server_records_which_mode_it_booted_in():
 
     assert build_server_from_argv(["--library", "x"]).config.libraries_from_argv
     assert not build_server_from_argv([]).config.libraries_from_argv
+
+
+# ---- the bundled fallback --------------------------------------------
+
+
+def test_the_fallback_is_declared_as_a_demo_not_as_the_project(monkeypatch, tmp_path):
+    """A fresh plugin install used to show an empty `list_processes`. It now
+    shows something, and the risk flips: someone could reasonably conclude that
+    clops *is* a session analyser. The copy has to head that off."""
+    out = guidance(
+        libraries=["clops.example_library.session_analyzer"], using_default_library=True
+    )
+    assert out["state"] == "default_only"
+    assert "demo" in out["next_step"]
+    assert "not what clops is for" in out["next_step"]
+    # and it still explains how to replace it
+    assert "TO ADD ONE" in out["next_step"]
+
+
+def test_a_real_library_is_not_labelled_a_demo():
+    out = guidance(libraries=["my_ops"])
+    assert out["state"] == "ready"
+    assert "demo" not in out["next_step"]
+
+
+# ---- resolution order ------------------------------------------------
+
+
+def test_the_default_only_applies_when_nothing_else_resolves(tmp_path, monkeypatch):
+    """Fallback, not addition. A project that declares its own libraries must
+    not also get the demo cluttering its process list."""
+    from clops.runtime.mcp_server import build_server_from_argv
+
+    monkeypatch.chdir(tmp_path)
+    default = ["--default-library", "clops.example_library.session_analyzer"]
+
+    empty = build_server_from_argv(default)
+    assert empty.config.libraries == ["clops.example_library.session_analyzer"]
+    assert empty.config.using_default_library
+
+    explicit = build_server_from_argv(["--library", "clops.example_library.core"] + default)
+    assert explicit.config.libraries == ["clops.example_library.core"]
+    assert not explicit.config.using_default_library
+
+    (tmp_path / ".clops").write_text("clops.example_library.code_review\n")
+    from_file = build_server_from_argv(default)
+    assert from_file.config.libraries == ["clops.example_library.code_review"]
+    assert not from_file.config.using_default_library
+
+
+def test_the_fallback_actually_produces_a_runnable_process(tmp_path):
+    """The whole point: an empty `list_processes` is the thing being fixed, so
+    assert on the runtime rather than on the config.
+
+    Run in a subprocess because Ops register as a side effect of module import,
+    and `sys.modules` caches. The autouse registry-clearing fixture cannot undo
+    that, so a sibling test that already imported this library would leave this
+    one looking at an empty registry and passing or failing for the wrong
+    reason. A clean interpreter is the only honest way to ask the question.
+    """
+    import subprocess
+    import sys
+
+    code = (
+        "from clops.runtime.mcp_server import build_server_from_argv as b;"
+        "s=b(['--default-library','clops.example_library.session_analyzer']);"
+        "print([p['name'] for p in s.runtime.list_processes()])"
+    )
+    out = subprocess.run(
+        [sys.executable, "-c", code], cwd=tmp_path, capture_output=True, text=True
+    )
+    assert out.returncode == 0, out.stderr
+    assert "AnalyzeSession" in out.stdout
+
+
+def test_the_plugin_ships_a_default_library(tmp_path):
+    """Without this the plugin installs a server with nothing to run, which is
+    what made the marketplace path feel broken even once it worked."""
+    import json as _json
+    from pathlib import Path as _Path
+
+    manifest = _Path(__file__).resolve().parent.parent / ".claude-plugin" / "plugin.json"
+    if not manifest.exists():  # pragma: no cover - sdist prunes it
+        pytest.skip(".claude-plugin not present")
+    args = _json.loads(manifest.read_text())["mcpServers"]["clops"]["args"]
+    assert "--default-library" in args
+    # A fallback, never a hard --library: that would suppress every project's
+    # own configuration.
+    assert "--library" not in args
+    assert any(a.startswith("clops.example_library.") for a in args)

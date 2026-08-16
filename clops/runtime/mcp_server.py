@@ -76,6 +76,11 @@ class ServerConfig:
     # The two cases need different setup advice, and after boot there is
     # otherwise no way to tell them apart.
     libraries_from_argv: bool = False
+    # True when nothing was configured and `--default-library` supplied the
+    # list. What is loaded is then a demo, not the user's choice, and saying
+    # so is the difference between "clops works" and "clops IS a session
+    # analyser".
+    using_default_library: bool = False
     project_dir: Optional[Path] = None     # $CLAUDE_PROJECT_DIR or cwd
     hook_socket_path: Optional[Path] = None
 
@@ -159,6 +164,7 @@ def configure_guidance(
     import_error: str | None,
     project_dir: str,
     libraries_from_argv: bool,
+    using_default_library: bool = False,
 ) -> dict[str, Any]:
     """Everything a caller needs to get this clops loaded with Op libraries.
 
@@ -186,6 +192,8 @@ def configure_guidance(
 
     if import_error:
         state = "import_failed"
+    elif using_default_library:
+        state = "default_only"
     elif libraries:
         state = "ready"
     else:
@@ -217,6 +225,19 @@ def configure_guidance(
         lines.append(
             "This clops is configured. Loaded: " + ", ".join(libraries) + ". "
             "Call list_processes to see what it can run."
+        )
+    elif state == "default_only":
+        lines.append(
+            "Nothing is configured for this project, so clops fell back to a "
+            "bundled demo: " + ", ".join(libraries) + ". It runs — try "
+            "list_processes — but it is an example of what an Op library looks "
+            "like, not what clops is for. Say so rather than presenting it as "
+            "the project's workflow."
+        )
+        lines.append(
+            "The point of clops is libraries the user writes or installs. When "
+            "they add one it replaces this demo automatically; the fallback only "
+            "applies while nothing else is configured."
         )
     else:
         lines.append(
@@ -619,6 +640,7 @@ class FlowServer:
             import_error=self._library_import_error,
             project_dir=str(self.project_dir),
             libraries_from_argv=self.config.libraries_from_argv,
+            using_default_library=self.config.using_default_library,
         )
 
     def _handle_list_processes(self, _args: dict) -> Any:
@@ -746,6 +768,18 @@ def build_server_from_argv(argv: list[str]) -> FlowServer:
     # stays correct if the entry point is ever invoked some other way.
     parser = argparse.ArgumentParser()
     parser.add_argument(
+        "--default-library",
+        action="append",
+        default=[],
+        dest="default_library",
+        help=(
+            "Fallback library, used only when nothing else resolves (repeatable). "
+            "A fallback rather than an addition on purpose: the plugin passes one "
+            "so a fresh install has something to run, and it must disappear the "
+            "moment a project declares its own."
+        ),
+    )
+    parser.add_argument(
         "--library",
         action="append",
         default=[],
@@ -793,11 +827,18 @@ def build_server_from_argv(argv: list[str]) -> FlowServer:
 
     # --library flags override .clops libraries; otherwise use .clops.
     libraries = ns.library if ns.library else clops_config.libraries
+    # Only when neither produced anything. A fresh clops with an empty
+    # `list_processes` and no explanation is most people's first contact with
+    # it; this gives them something that runs.
+    using_default = not libraries and bool(ns.default_library)
+    if using_default:
+        libraries = list(ns.default_library)
 
     config = ServerConfig(
         libraries=libraries,
         project_dir=project_dir,
         libraries_from_argv=bool(ns.library),
+        using_default_library=using_default,
     )
     srv = FlowServer(config)
     srv._constants = clops_config.constants
