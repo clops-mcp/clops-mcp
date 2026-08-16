@@ -62,37 +62,72 @@ def test_clops_mcp_and_clops_server_are_the_same_entry_point(project):
     assert project["scripts"]["clops-mcp"] == project["scripts"]["clops-server"]
 
 
-@pytest.mark.parametrize(
-    "manifest,pointer",
-    [
-        ("server.json", ("version",)),
-        (".claude-plugin/plugin.json", ("version",)),
-        (".claude-plugin/marketplace.json", ("plugins", 0, "version")),
-    ],
-)
-def test_every_manifest_agrees_with_pyproject(project, manifest, pointer):
-    """Four files carry the version and nothing kept them in step.
+def _version_locations():
+    """`scripts/set_version.py`, or a skip if it isn't shipped.
 
-    The release workflow's first real step compares the tag against
-    `pyproject.toml` and stops the release if they differ — so pyproject is the
-    one that gets remembered, and the other three quietly rot. A plugin that
-    reports 0.3.0 from a 0.4.0 install is not fatal, but it is the kind of wrong
-    that makes someone doubt everything else the manifest says.
+    The sdist prunes `scripts/`, so these tests have to degrade rather than
+    error when running from an unpacked sdist.
     """
-    import json
-    from pathlib import Path
+    scripts = Path(__file__).resolve().parent.parent / "scripts"
+    if not (scripts / "set_version.py").exists():  # pragma: no cover
+        pytest.skip("scripts/ not present (sdist)")
+    sys.path.insert(0, str(scripts))
+    try:
+        import set_version
+    finally:
+        sys.path.remove(str(scripts))
+    return set_version
 
-    path = Path(__file__).resolve().parent.parent / manifest
-    if not path.exists():  # pragma: no cover - sdist prunes .claude-plugin
-        pytest.skip(f"{manifest} not present")
 
-    node = json.loads(path.read_text())
-    for key in pointer:
-        node = node[key]
+def test_every_location_agrees_with_pyproject(project):
+    """Seven places carry the version and nothing kept them in step.
 
-    assert node == project["version"], (
-        f"{manifest} says {node}, pyproject.toml says {project['version']}"
+    The release now derives the version from the tag and writes it everywhere,
+    so drift on `main` is cosmetic rather than fatal — but cosmetic drift is
+    what makes someone distrust the rest of a manifest. A plugin reporting
+    0.3.0 from a 0.4.1 install is the kind of wrong that costs you the benefit
+    of the doubt.
+
+    Driven by `scripts/set_version.py`'s own list so that adding a location
+    means editing one file, not two. A test with its own copy of the list is a
+    test that stops covering the thing it was written for.
+    """
+    set_version = _version_locations()
+    disagree = {
+        label: value
+        for label, value in set_version.read_all().items()
+        if value is not None and value != project["version"]
+    }
+    assert not disagree, (
+        f"pyproject.toml says {project['version']}; these disagree: {disagree}"
     )
+
+
+def test_set_version_actually_reaches_every_location():
+    """The list is only worth having if writing through it works.
+
+    Exercised against a real write and then restored, because the failure this
+    guards against is a pattern that silently stops matching after someone
+    rewords the line around it — which a read-only check cannot see.
+    """
+    set_version = _version_locations()
+    originals = {
+        loc.full: loc.full.read_text() for loc in set_version.LOCATIONS if loc.full.exists()
+    }
+    try:
+        set_version.write_all("9.9.9")
+        written = {v for v in set_version.read_all().values() if v is not None}
+        assert written == {"9.9.9"}, f"some location did not take the write: {written}"
+    finally:
+        for path, text in originals.items():
+            path.write_text(text)
+
+    # This test writes to the real source tree, and the release workflow runs
+    # the suite *between* setting the version and building. A restore that
+    # silently half-worked would ship the wrong version, so prove it rather
+    # than trust the finally block.
+    for path, text in originals.items():
+        assert path.read_text() == text, f"{path} was not restored"
 
 
 def test_server_help_reports_the_name_it_was_invoked_as(capsys):
