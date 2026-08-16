@@ -81,18 +81,46 @@ jobs:
       # the release path, `github.event.release` is empty on the dispatch path.
       TAG: ${{ inputs.tag || github.event.release.tag_name }}
     steps:
-      # Check out the TAG, not the branch. Under workflow_dispatch the default
+      # This workflow uses NO third-party actions, by policy: the org requires
+      # actions to be owned by clops-mcp and pinned to a full-length SHA, which
+      # rules out actions/checkout and astral-sh/setup-uv. Doing both by hand is
+      # a dozen lines and, for a job holding `id-token: write` against PyPI,
+      # removes the one class of supply-chain risk that could publish as us.
+      #
+      # Checks out the TAG, not the branch. Under workflow_dispatch the default
       # ref is the branch it was dispatched from, so without this the job builds
       # whatever is on main and publishes it under the tag's name — silently
       # divergent the moment anything lands after the tag.
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ env.TAG }}
+      - name: Check out the tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git init -q .
+          git remote add origin "https://github.com/${GITHUB_REPOSITORY}.git"
+          # Auth as a header rather than in the remote URL, so the token is not
+          # sitting in .git/config for every later command to echo. Reads are
+          # anonymous on a public repo; this is here for the sync-branch push.
+          git config --local "http.https://github.com/.extraheader" \
+            "AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
+          # Full history, not --depth 1: the sync step branches from this commit
+          # and pushes, and pushing from a shallow clone is rejected.
+          git fetch -q --tags origin
+          git checkout -q --detach "${TAG}"
+          echo "Checked out $(git rev-parse --short HEAD) (${TAG})"
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v5
-        with:
-          python-version: "3.12"
+        # Pinned exactly. `curl | sh` from astral.sh would satisfy the letter of
+        # the policy while reintroducing exactly what it is trying to prevent —
+        # an unpinned third-party fetch in a job that can publish to PyPI.
+        # Installed into its own venv because the runner's system Python is
+        # externally managed and rejects a plain `pip install`.
+        env:
+          UV_VERSION: "0.12.5"
+        run: |
+          python3 -m venv /tmp/uvenv
+          /tmp/uvenv/bin/pip install --quiet --disable-pip-version-check "uv==${UV_VERSION}"
+          echo /tmp/uvenv/bin >> "$GITHUB_PATH"
+          /tmp/uvenv/bin/uv --version
 
       - name: Set the version from the tag
         # The tag is the source of truth. Every place the version is written
