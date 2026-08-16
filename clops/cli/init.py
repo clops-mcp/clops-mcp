@@ -101,16 +101,22 @@ def build_mcp_json(
 ) -> dict:
     """Build .mcp.json that runs the clops MCP server via uvx.
 
-    Using ``uvx --from clops-mcp`` works regardless of how clops itself was
-    installed (plugin, pip, uv tool install, or not at all) — nothing needs to
-    be on PATH. Library sources are pulled into the same run env via repeated
-    ``--with`` flags.
+    ``uvx`` works regardless of how clops itself was installed (plugin, pip,
+    uv tool install, or not at all) — nothing needs to be on PATH. Library
+    sources are pulled into the same run env via repeated ``--with`` flags.
+
+    ``--from`` is emitted only when the install spec is something other than
+    the plain distribution name. ``uvx clops-mcp`` already means "install
+    clops-mcp, run its clops-mcp script", so spelling it
+    ``uvx --from clops-mcp clops-mcp`` in the file every user reads adds a flag
+    that explains nothing. A pinned version or a local checkout still needs it.
     """
     server_name = naming.qualify_server_name(server_name)
-    args = ["--from", install_spec()]
+    spec = install_spec()
+    args = [] if spec == PYPI_NAME else ["--from", spec]
     for src in sources:
         args.extend(["--with", src])
-    args.append("clops-server")
+    args.append("clops-mcp")
     for lib in libraries:
         args.extend(["--library", lib])
     # Pass the name through: the server derives the tool prefix it puts in

@@ -13,9 +13,7 @@
     "clops": {
       "command": "uvx",
       "args": [
-        "--from",
-        "clops-mcp",
-        "clops-server"
+        "clops-mcp"
       ]
     }
   },

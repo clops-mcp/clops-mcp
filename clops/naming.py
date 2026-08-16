@@ -5,7 +5,7 @@ registered as `clops` is called as `mcp__clops__complete`. That prefix is what
 keeps a locally-installed clops and a hosted one from colliding in the same
 project, so the name cannot be a constant: it is chosen per project by
 ``clops init --server-name`` and must be echoed back by the running server
-(``clops-server --server-name``) so dispatch prompts tell subagents the *right*
+(``clops-mcp --server-name``) so dispatch prompts tell subagents the *right*
 thing to call.
 
 The *shape* of that reference is not universal either. `mcp__<server>__<tool>`
@@ -14,7 +14,7 @@ client sees something else entirely — IBM ContextForge re-exposes `complete` a
 `clops-support-complete`: its own prefix, hyphens for underscores, no `mcp__`.
 A dispatch prompt naming `mcp__clops__complete` there tells the subagent to call
 a tool that is not on its list, and the run stalls at the first step. So the
-pattern is configurable too (``clops-server --tool-pattern``), defaulting to the
+pattern is configurable too (``clops-mcp --tool-pattern``), defaulting to the
 Claude Code form because that is what the overwhelming majority of clients are.
 
 Process-global, like the Op registry: one server per process, set once at

@@ -33,16 +33,26 @@ def test_build_settings_patch_has_hook():
 
 
 def test_build_mcp_json_plain_libraries():
+    """The default shape is `uvx clops-mcp --library ...` — no `--from`.
+
+    `uvx clops-mcp` already means "install clops-mcp, run its clops-mcp
+    script". Spelling that `uvx --from clops-mcp clops-mcp` in the file every
+    user opens adds a flag that explains nothing.
+    """
     mcp = build_mcp_json(["my_company.ops"], [])
     server = mcp["mcpServers"][MCP_SERVER_NAME]
     assert server["command"] == "uvx"
-    # `uvx --from <install-spec> clops-server ...`
-    assert server["args"][0] == "--from"
-    assert server["args"][1] == install_spec()
-    assert "clops-server" in server["args"]
-    assert "--library" in server["args"]
-    assert "my_company.ops" in server["args"]
-    assert "--with" not in server["args"]
+    assert server["args"] == ["clops-mcp", "--library", "my_company.ops"]
+    assert "--from" not in server["args"]
+
+
+def test_build_mcp_json_keeps_from_for_a_non_default_spec(monkeypatch):
+    """A pinned version or a local checkout genuinely needs `--from`, because
+    the script name no longer implies where to get it."""
+    monkeypatch.setenv("CLOPS_INSTALL_SPEC", "clops-mcp==9.9.9")
+    args = build_mcp_json(["my_ops"], [])["mcpServers"][MCP_SERVER_NAME]["args"]
+    assert args[:2] == ["--from", "clops-mcp==9.9.9"]
+    assert "clops-mcp" in args[2:]
 
 
 def test_install_spec_defaults_to_the_pypi_distribution(monkeypatch):

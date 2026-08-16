@@ -187,7 +187,7 @@ def test_build_mcp_json_rejects_invalid_name():
 
 
 def test_server_argv_sets_the_name():
-    """`clops-server --server-name` must actually take effect on the process."""
+    """`clops-mcp --server-name` must actually take effect on the process."""
     from clops.runtime.mcp_server import build_server_from_argv
 
     build_server_from_argv(["--library", "examples.my_company", "--server-name", "acme-dev"])

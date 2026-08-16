@@ -15,7 +15,7 @@ pip install -e .                    # clops + bin scripts on PATH
 Verify:
 
 ```bash
-which clops-server clops-hook clops
+which clops-mcp clops-hook clops
 ```
 
 You should see three paths.

@@ -33,8 +33,7 @@ def test_the_plugin_registers_the_mcp_server(plugin):
     relay loop against a server the user does not have."""
     server = plugin["mcpServers"]["clops"]
     assert server["command"] == "uvx"
-    assert server["args"][:2] == ["--from", "clops-mcp"]
-    assert "clops-server" in server["args"]
+    assert server["args"] == ["clops-mcp"]
 
 
 def test_the_plugin_server_passes_no_library(plugin):

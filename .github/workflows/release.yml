@@ -213,10 +213,10 @@ jobs:
           print("bundled libraries import:", ", ".join(sorted(libs)))
           PY
           /tmp/smoke/bin/clops --help > /dev/null
-          # NB: don't invoke clops-server/clops-hook here — they have no --help
+          # NB: don't invoke clops-mcp/clops-hook here — clops-mcp would start
           # path; they'd start the stdio server and hang the job. Assert the
           # console scripts were installed instead.
-          test -x /tmp/smoke/bin/clops-server
+          test -x /tmp/smoke/bin/clops-mcp
           test -x /tmp/smoke/bin/clops-hook
 
       # Publishing a GitHub release is the gate. There is no second switch — a

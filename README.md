@@ -137,7 +137,7 @@ To register the server by hand instead — in Cursor, Zed, or behind a gateway:
   "mcpServers": {
     "clops": {
       "command": "uvx",
-      "args": ["--from", "clops-mcp", "clops-server"]
+      "args": ["clops-mcp"]
     }
   }
 }
@@ -356,7 +356,7 @@ this is what you get.
 
 | Component | What it does |
 |---|---|
-| MCP server `clops` | `uvx --from clops-mcp clops-server`, no `--library` — it reads each project's `.clops` |
+| MCP server `clops` | `uvx clops-mcp`, no `--library` — it reads each project's `.clops` |
 | `SubagentStop` hook | Forwards the stop payload to the run's socket so the runtime sees step completion |
 | Skill `clops-orchestration` | The dispatch relay loop |
 | Agent `clops-executor` | The subagent template each step is dispatched to |

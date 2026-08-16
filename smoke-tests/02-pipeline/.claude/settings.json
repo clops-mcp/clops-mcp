@@ -5,7 +5,7 @@
       "args": [
         "run",
         "--project", "/Users/wesley/code/clops",
-        "clops-server",
+        "clops-mcp",
         "--library", "smoke_02_pipeline"
       ]
     }

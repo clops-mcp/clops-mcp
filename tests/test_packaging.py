@@ -35,12 +35,17 @@ def test_distribution_is_named_clops_mcp(project):
     assert project["name"] == "clops-mcp"
 
 
-@pytest.mark.parametrize(
-    "script",
-    ["clops", "clops-server", "clops-hook", "clops-mcp"],
-)
+@pytest.mark.parametrize("script", ["clops", "clops-hook", "clops-mcp"])
 def test_console_script_is_declared(project, script):
     assert script in project["scripts"]
+
+
+def test_there_is_no_second_name_for_the_server(project):
+    """`clops-server` was a duplicate of `clops-mcp` — same entry point, two
+    names — so every doc, config and error message had to pick one and the
+    reader had to work out they were the same program. One name only."""
+    assert "clops-server" not in project["scripts"]
+    assert len(set(project["scripts"].values())) == len(project["scripts"])
 
 
 def test_uvx_shorthand_works_because_a_script_matches_the_distribution_name():
@@ -57,9 +62,12 @@ def test_uvx_shorthand_works_because_a_script_matches_the_distribution_name():
     assert project["name"] in project["scripts"]
 
 
-def test_clops_mcp_and_clops_server_are_the_same_entry_point(project):
-    """The alias exists for `uvx`; it must not drift into a second server."""
-    assert project["scripts"]["clops-mcp"] == project["scripts"]["clops-server"]
+def test_clops_mcp_is_the_server_not_the_cli(project):
+    """`uvx clops-mcp` has to start the MCP server, because launching it from a
+    client config is the whole reason to `uvx` an MCP package. Pointing this at
+    `clops.cli.main` would print CLI help into a stdio transport."""
+    assert project["scripts"]["clops-mcp"].startswith("clops.runtime.mcp_server")
+    assert project["scripts"]["clops"].startswith("clops.cli")
 
 
 def _version_locations():
@@ -146,4 +154,4 @@ def test_server_help_reports_the_name_it_was_invoked_as(capsys):
         sys.argv[0] = original
 
     assert "clops-mcp" in out
-    assert "usage: clops-server" not in out
+    assert "usage: clops" not in out.replace("usage: clops-mcp", "")
