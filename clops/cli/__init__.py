@@ -1,1 +1,1 @@
-"""CLI entry points: clops-server, clops-hook, clops (init)."""
+"""CLI entry points: clops-mcp (the MCP server), clops-hook, clops (init)."""

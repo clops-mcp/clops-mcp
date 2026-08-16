@@ -101,16 +101,22 @@ def build_mcp_json(
 ) -> dict:
     """Build .mcp.json that runs the clops MCP server via uvx.
 
-    Using ``uvx --from clops-mcp`` works regardless of how clops itself was
-    installed (plugin, pip, uv tool install, or not at all) — nothing needs to
-    be on PATH. Library sources are pulled into the same run env via repeated
-    ``--with`` flags.
+    ``uvx`` works regardless of how clops itself was installed (plugin, pip,
+    uv tool install, or not at all) — nothing needs to be on PATH. Library
+    sources are pulled into the same run env via repeated ``--with`` flags.
+
+    ``--from`` is emitted only when the install spec is something other than
+    the plain distribution name. ``uvx clops-mcp`` already means "install
+    clops-mcp, run its clops-mcp script", so spelling it
+    ``uvx --from clops-mcp clops-mcp`` in the file every user reads adds a flag
+    that explains nothing. A pinned version or a local checkout still needs it.
     """
     server_name = naming.qualify_server_name(server_name)
-    args = ["--from", install_spec()]
+    spec = install_spec()
+    args = [] if spec == PYPI_NAME else ["--from", spec]
     for src in sources:
         args.extend(["--with", src])
-    args.append("clops-server")
+    args.append("clops-mcp")
     for lib in libraries:
         args.extend(["--library", lib])
     # Pass the name through: the server derives the tool prefix it puts in
@@ -260,8 +266,17 @@ def init_project(
     *,
     write_skill_file: bool = True,
     server_name: str = naming.DEFAULT_SERVER_NAME,
+    plugin_provides_wiring: bool = False,
 ) -> dict[str, Path]:
-    """Write all init artifacts. Returns a map of what was written."""
+    """Write all init artifacts. Returns a map of what was written.
+
+    ``plugin_provides_wiring`` is for the case where the Claude Code plugin is
+    installed. The plugin already supplies the MCP server, the SubagentStop
+    hook, the skill and the executor agent, so writing project copies of all
+    four would register each of them twice — two `clops` servers competing for
+    one name, and a hook firing the same payload at the socket twice. Only
+    ``.clops`` is genuinely per-project, because only the library list is.
+    """
     from clops.runtime.clops import _parse_library_line
 
     project_dir = project_dir.resolve()
@@ -274,11 +289,12 @@ def init_project(
 
     written: dict[str, Path] = {}
     written["clops"] = write_clops(project_dir, libraries)
-    written["mcp_json"] = write_mcp_json(project_dir, modules, sources, server_name)
-    written["settings"] = write_settings(project_dir)
-    written["clops_executor"] = write_clops_executor(project_dir)
-    if write_skill_file:
-        written["skill"] = write_skill(project_dir)
+    if not plugin_provides_wiring:
+        written["mcp_json"] = write_mcp_json(project_dir, modules, sources, server_name)
+        written["settings"] = write_settings(project_dir)
+        written["clops_executor"] = write_clops_executor(project_dir)
+        if write_skill_file:
+            written["skill"] = write_skill(project_dir)
     gi = update_gitignore(project_dir)
     if gi is not None:
         written["gitignore"] = gi
@@ -301,6 +317,16 @@ def add_arguments(parser) -> None:
         help="Skip copying the clops-orchestration skill (use if you rely on the installed plugin for it).",
     )
     parser.add_argument(
+        "--plugin",
+        action="store_true",
+        help=(
+            "You installed the Claude Code plugin. It already provides the MCP "
+            "server, the SubagentStop hook, the skill and the executor agent, so "
+            "write only .clops — writing project copies too would register each "
+            "of them twice."
+        ),
+    )
+    parser.add_argument(
         "--server-name",
         default=naming.DEFAULT_SERVER_NAME,
         help=(
@@ -320,7 +346,13 @@ def run(ns) -> int:
         libraries=ns.library,
         write_skill_file=not ns.no_skill,
         server_name=ns.server_name,
+        plugin_provides_wiring=ns.plugin,
     )
     for key, path in written.items():
         print(f"wrote {key}: {path}")
+    if ns.plugin:
+        print(
+            "\nThe plugin provides the MCP server, hook, skill and agent. "
+            "Restart Claude Code to pick up the library list."
+        )
     return 0

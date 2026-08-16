@@ -8,5 +8,26 @@
   "skills": "./clops/_plugin/skills/",
   "agents": [
     "./clops/_plugin/agents/clops-executor.md"
-  ]
+  ],
+  "mcpServers": {
+    "clops": {
+      "command": "uvx",
+      "args": [
+        "clops-mcp"
+      ]
+    }
+  },
+  "hooks": {
+    "SubagentStop": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "uvx --from clops-mcp clops-hook"
+          }
+        ]
+      }
+    ]
+  }
 }

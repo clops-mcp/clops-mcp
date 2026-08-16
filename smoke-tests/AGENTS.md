@@ -53,7 +53,7 @@ Every scenario folder is **self-contained**: the operator can `cd` into it, foll
 
 1. **One-time machine setup** (top-level `smoke-tests/README.md` covers it):
    - From the clops repo root: `uv tool install --editable .`
-   - This puts `clops`, `clops-server`, and `clops-hook` on PATH.
+   - This puts `clops`, `clops-mcp`, and `clops-hook` on PATH.
 
 2. **Per-scenario setup** (each `SCENARIO.md` repeats the exact commands):
    - `cd smoke-tests/<n>-<slug>/`
@@ -127,7 +127,7 @@ If you can't describe the shape in one sentence, split into multiple scenarios.
     "mcpServers": {
       "clops": {
         "command": "uvx",
-        "args": ["clops-server", "--library", "smoke_<n>_<slug>"]
+        "args": ["clops-mcp", "--library", "smoke_<n>_<slug>"]
       }
     },
     "hooks": {

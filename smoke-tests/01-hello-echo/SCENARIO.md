@@ -47,7 +47,7 @@ You should see the Echo Op dispatched **exactly once**, and the final output sho
 
 ## Common failure modes
 
-- **MCP server fails to start.** Check `.claude/settings.json` and that `clops-server` is on PATH. Run `pip install -e ./library` if you haven't.
+- **MCP server fails to start.** Check `.claude/settings.json` and that `clops-mcp` is on PATH. Run `pip install -e ./library` if you haven't.
 - **`list_processes` returns empty.** The library wasn't loaded — check the `--library smoke_01_echo` arg in `settings.json` matches the installed package name.
 - **Subagent terminates without calling `complete`.** Hook should block; you'll see Claude Code surface the block reason. If it doesn't block, the SubagentStop hook isn't wired up — check `clops-hook` is on PATH.
 - **Subagent calls `mcp__clops__call_tool` despite no tools being declared.** Symptom that the prompt's "Tools available" section is leaking. Should not happen — Echo declares no Tools.

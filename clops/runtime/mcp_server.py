@@ -569,10 +569,11 @@ def build_server_from_argv(argv: list[str]) -> FlowServer:
 
     from clops.runtime.clops import read_clops, read_clops_config
 
-    # No `prog=`: this same entry point is installed under two names, and
-    # argparse defaults to basename(sys.argv[0]), so `--help` reports whichever
-    # one was actually typed. Hardcoding "clops-server" made `uvx clops-mcp
-    # --help` print usage for a command the reader had not run.
+    # No `prog=`: argparse defaults to basename(sys.argv[0]), so `--help`
+    # reports whatever the reader actually typed. This mattered acutely when
+    # the server shipped under two names and a hardcoded `prog` printed usage
+    # for the other one; with a single name it is simply still correct, and
+    # stays correct if the entry point is ever invoked some other way.
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--library",
