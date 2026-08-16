@@ -3,6 +3,11 @@
 Tool surface is intentionally minimal — a fixed set of tools, regardless
 of library size:
 
+Setup tool:
+    configure_clops — what to change to get Op libraries loaded. Returns
+    instructions, not a run, and deliberately keeps answering when a
+    library failed to import, which is when it is most needed.
+
 Main-thread tools:
     list_processes, start_process, step_complete, step_complete_parallel,
     resolve_need, run_status, abort_run
@@ -46,6 +51,10 @@ from clops.registry import registry
 from clops.runtime.core import Runtime, RuntimeError_
 
 
+# `configure_clops` is deliberately NOT in here. `_dispatch_tool_call`
+# short-circuits every MAIN_TOOL_NAME when a library failed to import, and a
+# broken library is exactly when someone needs setup help — listing it here
+# would make the tool refuse to answer with the error it exists to explain.
 MAIN_TOOL_NAMES = (
     "list_processes",
     "start_process",
@@ -56,12 +65,22 @@ MAIN_TOOL_NAMES = (
     "abort_run",
 )
 SUBAGENT_TOOL_NAMES = ("complete", "need", "call_tool", "state")
-ALL_TOOL_NAMES = MAIN_TOOL_NAMES + SUBAGENT_TOOL_NAMES
+SETUP_TOOL_NAMES = ("configure_clops",)
+ALL_TOOL_NAMES = MAIN_TOOL_NAMES + SUBAGENT_TOOL_NAMES + SETUP_TOOL_NAMES
 
 
 @dataclass
 class ServerConfig:
     libraries: list[str] = field(default_factory=list)  # Python package import paths
+    # True when the list came from `--library` flags rather than `.clops`.
+    # The two cases need different setup advice, and after boot there is
+    # otherwise no way to tell them apart.
+    libraries_from_argv: bool = False
+    # True when nothing was configured and `--default-library` supplied the
+    # list. What is loaded is then a demo, not the user's choice, and saying
+    # so is the difference between "clops works" and "clops IS a session
+    # analyser".
+    using_default_library: bool = False
     project_dir: Optional[Path] = None     # $CLAUDE_PROJECT_DIR or cwd
     hook_socket_path: Optional[Path] = None
 
@@ -126,6 +145,158 @@ def clean_stale_hook_sockets(project_dir: Path) -> None:
 
 def _jsonify(value: Any) -> str:
     return json.dumps(value, default=str, indent=None)
+
+
+def bundled_libraries() -> list[str]:
+    """Op libraries that ship inside the wheel, so they import anywhere."""
+    try:
+        import clops.example_library as pkg
+    except Exception:  # pragma: no cover - only if the wheel is broken
+        return []
+    return sorted(
+        f"clops.example_library.{m.name}" for m in pkgutil.iter_modules(pkg.__path__)
+    )
+
+
+def configure_guidance(
+    *,
+    libraries: list[str],
+    import_error: str | None,
+    project_dir: str,
+    libraries_from_argv: bool,
+    using_default_library: bool = False,
+) -> dict[str, Any]:
+    """Everything a caller needs to get this clops loaded with Op libraries.
+
+    Not a process. Setting up is a handful of file edits and a restart, and
+    walking that through the dispatch loop one Op at a time would be slower
+    and more fragile than just saying it.
+
+    The reason this exists at all: a clops with no libraries answers
+    `list_processes` with an empty list and gives no hint that anything is
+    missing or what to do about it. That is most people's first contact.
+
+    The two install shapes need genuinely different advice, which is why this
+    branches rather than printing one set of steps:
+
+    * **shared** (no ``--library`` on the command line) — the server reads
+      ``.clops`` from the project directory. This is the plugin: one server for
+      every project. It runs under ``uvx clops-mcp`` with nothing else in the
+      environment, so it can only import libraries that are already there.
+    * **project** (``--library`` flags, written by ``clops init``) — those
+      flags *override* ``.clops`` entirely. Editing ``.clops`` alone does
+      nothing, which is a trap worth naming explicitly.
+    """
+    mode = "project" if libraries_from_argv else "shared"
+    bundled = bundled_libraries()
+
+    if import_error:
+        state = "import_failed"
+    elif using_default_library:
+        state = "default_only"
+    elif libraries:
+        state = "ready"
+    else:
+        state = "no_libraries"
+
+    lines: list[str] = []
+
+    if state == "import_failed":
+        lines.append(
+            f"A configured library failed to import: {import_error} "
+            "Until this is fixed no process can run."
+        )
+        if mode == "shared":
+            lines.append(
+                "The likeliest cause: this server runs via `uvx clops-mcp`, which "
+                "installs clops and nothing else. A library that lives in a local "
+                "path or a git repo is not in that environment, and a shared "
+                "server has no way to put it there. See the shared-server note "
+                "below."
+            )
+        else:
+            lines.append(
+                "The likeliest cause: the library is named in `--library` but "
+                "nothing installed it. If it is a path or a git URL it also needs "
+                "a matching `--with` in `.mcp.json`; `clops init` writes both from "
+                "a `module @ source` line."
+            )
+    elif state == "ready":
+        lines.append(
+            "This clops is configured. Loaded: " + ", ".join(libraries) + ". "
+            "Call list_processes to see what it can run."
+        )
+    elif state == "default_only":
+        lines.append(
+            "Nothing is configured for this project, so clops fell back to a "
+            "bundled demo: " + ", ".join(libraries) + ". It runs — try "
+            "list_processes — but it is an example of what an Op library looks "
+            "like, not what clops is for. Say so rather than presenting it as "
+            "the project's workflow."
+        )
+        lines.append(
+            "The point of clops is libraries the user writes or installs. When "
+            "they add one it replaces this demo automatically; the fallback only "
+            "applies while nothing else is configured."
+        )
+    else:
+        lines.append(
+            "This clops has no Op libraries, so there is nothing for it to run "
+            "yet. An Op library is an ordinary Python package that declares Ops; "
+            "clops has no built-in workflows, only the ones a library provides."
+        )
+        lines.append(
+            "Ask the user which library they want, and accept any of: an "
+            "importable module name, a path to a local checkout, or a git URL. "
+            "Do not guess or invent one."
+        )
+        if bundled:
+            lines.append(
+                "If they just want to see it work, these ship inside the package "
+                "and need no install: " + ", ".join(bundled) + "."
+            )
+
+    if state != "ready":
+        if mode == "shared":
+            lines.append(
+                f"TO ADD ONE (shared server). Edit `{project_dir}/.clops` — one "
+                "module per line, `# ` for comments — then have the user restart "
+                "their client, because libraries load once at startup. This server "
+                "was started without `--library`, so `.clops` is what it reads."
+            )
+            lines.append(
+                "SHARED-SERVER LIMIT, say this plainly rather than letting them "
+                "hit it: this server can only load libraries already importable in "
+                "its environment — in practice the bundled ones. A library of "
+                "their own needs a per-project server that can install it: "
+                "`uvx --from clops-mcp clops init --library \"my_ops @ ./my_ops\"`, "
+                "which writes a `.mcp.json` carrying both the `--with` that "
+                "installs it and the `--library` that loads it."
+            )
+        else:
+            lines.append(
+                f"TO ADD ONE (this project). Run `clops init --library <name>` in "
+                f"`{project_dir}`, which merges into the existing config, then have "
+                "the user restart their client. For a library that is not installed, "
+                "use the `module @ source` form — `my_ops @ ./my_ops` or "
+                "`my_ops @ git+https://...` — so the generated `.mcp.json` gets the "
+                "`--with` that installs it as well as the `--library` that loads it."
+            )
+            lines.append(
+                "WATCH OUT: this server was started with `--library` flags, and "
+                "those override `.clops` completely. Editing `.clops` by hand here "
+                "changes nothing — the flags in `.mcp.json` are what count."
+            )
+
+    return {
+        "state": state,
+        "mode": mode,
+        "project_dir": project_dir,
+        "libraries": libraries,
+        "bundled_libraries": bundled,
+        "import_error": import_error,
+        "next_step": "\n\n".join(lines),
+    }
 
 
 def next_step(payload: dict[str, Any]) -> str | None:
@@ -251,6 +422,17 @@ class FlowServer:
 
     def _build_tool_catalog(self) -> list[mcp_types.Tool]:
         tools: list[mcp_types.Tool] = []
+
+        tools.append(mcp_types.Tool(
+            name="configure_clops",
+            description=(
+                "How to get this clops set up: which Op libraries are loaded, and "
+                "what to change if none are. Call this when list_processes is "
+                "empty, when a library fails to import, or when the user asks to "
+                "add one. Returns instructions, not a run."
+            ),
+            inputSchema={"type": "object", "properties": {}, "additionalProperties": False},
+        ))
 
         # Main-thread tools
         tools.append(mcp_types.Tool(
@@ -435,6 +617,7 @@ class FlowServer:
 
     def _resolve_tool(self, name: str) -> Optional[Callable[[dict], Any]]:
         handlers = {
+            "configure_clops": self._handle_configure_clops,
             "list_processes": self._handle_list_processes,
             "start_process": self._handle_start_process,
             "step_complete": self._handle_step_complete,
@@ -450,6 +633,15 @@ class FlowServer:
         return handlers.get(name)
 
     # Main-thread handlers
+
+    def _handle_configure_clops(self, _args: dict) -> Any:
+        return configure_guidance(
+            libraries=list(self.config.libraries),
+            import_error=self._library_import_error,
+            project_dir=str(self.project_dir),
+            libraries_from_argv=self.config.libraries_from_argv,
+            using_default_library=self.config.using_default_library,
+        )
 
     def _handle_list_processes(self, _args: dict) -> Any:
         return self.runtime.list_processes()
@@ -576,6 +768,18 @@ def build_server_from_argv(argv: list[str]) -> FlowServer:
     # stays correct if the entry point is ever invoked some other way.
     parser = argparse.ArgumentParser()
     parser.add_argument(
+        "--default-library",
+        action="append",
+        default=[],
+        dest="default_library",
+        help=(
+            "Fallback library, used only when nothing else resolves (repeatable). "
+            "A fallback rather than an addition on purpose: the plugin passes one "
+            "so a fresh install has something to run, and it must disappear the "
+            "moment a project declares its own."
+        ),
+    )
+    parser.add_argument(
         "--library",
         action="append",
         default=[],
@@ -623,8 +827,19 @@ def build_server_from_argv(argv: list[str]) -> FlowServer:
 
     # --library flags override .clops libraries; otherwise use .clops.
     libraries = ns.library if ns.library else clops_config.libraries
+    # Only when neither produced anything. A fresh clops with an empty
+    # `list_processes` and no explanation is most people's first contact with
+    # it; this gives them something that runs.
+    using_default = not libraries and bool(ns.default_library)
+    if using_default:
+        libraries = list(ns.default_library)
 
-    config = ServerConfig(libraries=libraries, project_dir=project_dir)
+    config = ServerConfig(
+        libraries=libraries,
+        project_dir=project_dir,
+        libraries_from_argv=bool(ns.library),
+        using_default_library=using_default,
+    )
     srv = FlowServer(config)
     srv._constants = clops_config.constants
     srv.runtime._project_constants = clops_config.constants
