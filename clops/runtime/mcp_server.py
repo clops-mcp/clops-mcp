@@ -154,7 +154,11 @@ def next_step(payload: dict[str, Any]) -> str | None:
             f"Spawn ONE subagent with the Agent tool: subagent_type='{template}', "
             "with `description` and `prompt` copied verbatim from `agent_config` — "
             "do not summarise, reword, or add to the prompt. When it finishes, call "
-            f"{report}(run_id, <the subagent's final text>). Do not do the work yourself."
+            f"{report}(run_id) with no second argument: the subagent already "
+            "reported its output directly, and passing it again just copies the "
+            "whole thing through your context to be discarded. Only if the "
+            "subagent stopped WITHOUT reporting, pass its final text as a "
+            f"fallback: {report}(run_id, <final text>). Do not do the work yourself."
         )
     if action == "dispatch_parallel":
         template = payload.get("agent_template", "clops-executor")
@@ -163,15 +167,20 @@ def next_step(payload: dict[str, Any]) -> str | None:
             f"Spawn one subagent per entry in `agent_configs` — subagent_type='{template}', "
             "each with its `description` and `prompt` verbatim — and issue them in a single "
             "message so they run concurrently. When all have finished, call "
-            f"{report}(run_id, {{execution_id: final text}}) with every one of "
-            f"`execution_ids`. Do not do the work yourself."
+            f"{report}(run_id, {{execution_id: final text}}) — every one of "
+            "`execution_ids` must be a key, and the run does not advance until "
+            "all of them have finished. The text is only a fallback for a "
+            "subagent that stopped without reporting; an empty string is fine "
+            "for the rest. Do not do the work yourself."
         )
     if action == "needs_resolution":
         return (
             "A subagent stopped and asked for something it could not get on its own; "
             "`reason` says what. Obtain it — from the user if it needs a human — then call "
             f"{naming.tool('resolve_need')}(run_id, <what was asked for>). The same Op is "
-            "re-dispatched with that added; nothing is lost."
+            "re-dispatched with that added; nothing is lost. If it cannot be obtained at "
+            f"all, {naming.tool('abort_run')}(run_id) — do not resolve with a guess, because "
+            "a second need after resolution fails the run."
         )
     if action == "done":
         return "The run is finished. `output` is the result — report it to the user. No further calls."

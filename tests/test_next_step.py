@@ -138,3 +138,45 @@ def test_a_supplied_next_step_is_not_overwritten():
 
     out = json.loads(_text({"action": "done", "next_step": "custom"})[0].text)
     assert out["next_step"] == "custom"
+
+
+# ---- the guidance must not cost the caller its context ---------------
+
+
+def test_dispatch_does_not_ask_for_the_output_to_be_passed_back():
+    """`step_complete`'s `result` is a FALLBACK, not the reporting channel.
+
+    `core.py` only reads it when the subagent failed to report for itself:
+
+        if not execution.completed_flag:
+            execution.output_snapshot = result
+
+    A subagent that called `complete()` has `completed_flag` set, so anything
+    passed here is discarded. Telling the caller to pass it anyway copies the
+    whole subagent output through the main thread's context for nothing —
+    exactly the accumulation clops exists to avoid. The skill always said
+    "no second argument"; this pins the payload to the same story.
+    """
+    text = next_step({"action": "dispatch", "report_via": "step_complete"})
+    call = naming.tool("step_complete")
+    assert f"{call}(run_id)" in text
+    assert "no second argument" in text
+    # The fallback still has to be reachable, or a subagent that dies silently
+    # strands the run.
+    assert "fallback" in text
+
+
+def test_parallel_says_the_run_waits_for_all_of_them():
+    """`step_complete_parallel` rejects a partial batch outright, so a caller
+    that reports the first finisher gets an error instead of progress."""
+    text = next_step({"action": "dispatch_parallel"})
+    assert "every one of" in text
+    assert "until" in text
+
+
+def test_needs_resolution_offers_abort_and_warns_against_guessing():
+    """A second need after resolution fails the run, so a guessed supplemental
+    turns a recoverable pause into a dead run."""
+    text = next_step({"action": "needs_resolution"})
+    assert naming.tool("abort_run") in text
+    assert "guess" in text
