@@ -85,35 +85,70 @@ prompt:
   ...
 ```
 
-## Quickstart
+## Install
 
-Requires [uv](https://docs.astral.sh/uv/) and Claude Code.
+Two ways in. Pick one — doing both registers the MCP server twice.
 
-**Install.** The distribution is **`clops-mcp`**; the import package and the CLI
-are both `clops`. Mind the difference — `clops` on PyPI is an unrelated project,
-so `pip install clops` gets you somebody else's package.
+Both need [uv](https://docs.astral.sh/uv/). Nothing needs a global Python
+install; `uvx` fetches clops on demand.
+
+### A. Plugin (Claude Code, one command)
+
+```bash
+claude plugin marketplace add clops-mcp/clops-mcp
+claude plugin install clops@clops
+```
+
+That is the whole install. The plugin carries the MCP server, the
+`SubagentStop` hook, the orchestration skill and the `clops-executor` agent, so
+there is nothing to wire up. Restart Claude Code, then tell each project which
+Op libraries it uses:
+
+```bash
+mkdir demo && cd demo
+uvx --from clops-mcp clops init --plugin \
+  --library clops.example_library.session_analyzer
+```
+
+`--plugin` writes only `.clops` — the library list is the one thing a global
+server cannot know. Restart again and the server picks it up.
+
+### B. Per-project (any MCP client)
+
+Use this outside Claude Code, or when you want the wiring committed to the repo
+so a fresh clone needs nothing but `uv`.
 
 ```bash
 uv tool install clops-mcp
-```
 
-`uvx clops-mcp` runs the MCP server without installing anything, which is what
-the generated `.mcp.json` does — so a fresh clone of a clops project needs `uv`
-and nothing else.
-
-**Set up a project.** From your project root:
-
-```bash
 mkdir demo && cd demo
 clops init --library clops.example_library.session_analyzer
 ```
 
-That writes `.mcp.json` (the clops MCP server), `.clops` (the project's
-libraries), the `SubagentStop` hook in `.claude/settings.json`, the
+`init` writes `.mcp.json` (the server, invoked through `uvx`), `.clops` (the
+library list), the `SubagentStop` hook in `.claude/settings.json`, the
 `clops-executor` agent, the orchestration skill, and a `.gitignore` line for the
-runtime's scratch directory. The result is self-contained: a fresh clone needs
-only `uv` and no global clops install, because the generated `.mcp.json` invokes
-the server through `uvx`.
+runtime's scratch directory.
+
+To register the server by hand instead — in Cursor, Zed, or behind a gateway:
+
+```json
+{
+  "mcpServers": {
+    "clops": {
+      "command": "uvx",
+      "args": ["--from", "clops-mcp", "clops-server"]
+    }
+  }
+}
+```
+
+With no `--library`, the server reads `.clops` from the project directory.
+
+> **Mind the distribution name.** It is **`clops-mcp`**; the import package and
+> the CLI are both `clops`. `pip install clops` gets you an unrelated project.
+
+## Quickstart
 
 **Look at what you got.**
 
@@ -314,26 +349,27 @@ Op's prompt. `[system_prompt]` is standing direction for the *orchestrator* —
 guidance on how to size the agent it dispatches to a given step — not for the
 leaf agents. Omit it and a small built-in default applies.
 
-## Optional: the Claude Code plugin
+## What the plugin contains
 
-The plugin installs clops's authoring and orchestration skills globally. It does
-**not** register an MCP server — your project's `.mcp.json` from `clops init`
-owns that, so the two never conflict.
+Install instructions are up in [Install](#a-plugin-claude-code-one-command);
+this is what you get.
 
-```bash
-claude plugin marketplace add clops-mcp/clops-mcp
-claude plugin install clops
-```
+| Component | What it does |
+|---|---|
+| MCP server `clops` | `uvx --from clops-mcp clops-server`, no `--library` — it reads each project's `.clops` |
+| `SubagentStop` hook | Forwards the stop payload to the run's socket so the runtime sees step completion |
+| Skill `clops-orchestration` | The dispatch relay loop |
+| Agent `clops-executor` | The subagent template each step is dispatched to |
 
-| Skill | What it does |
-|-------|-------------|
-| `clops-orchestration` | The dispatch relay loop. `clops init` also copies it into the project, so the plugin is not required for it. |
+Four components, one skill among them. It stays thin because every payload the
+server returns carries a `next_step` field spelling out what the caller has to
+do with it. The relay is self-describing, so the skill is a convenience rather
+than a dependency — which is also why clops works unchanged through a gateway,
+where nothing has copied a skill file anywhere.
 
-The plugin is deliberately thin — one skill and one agent template. Every
-payload the server returns carries a `next_step` field spelling out what the
-caller has to do with it, so the relay is self-describing and the skill is a
-convenience rather than a dependency. That also means it works unchanged
-through a gateway, where nothing has copied a skill file anywhere.
+**Do not run plain `clops init` with the plugin installed.** You would get two
+MCP servers both called `clops` and the hook firing twice. Use
+`clops init --plugin`, which writes only `.clops`.
 
 ## From source
 

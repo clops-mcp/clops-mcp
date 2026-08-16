@@ -232,3 +232,38 @@ def test_init_project_preserves_unrelated_settings(tmp_path):
     init_project(tmp_path, libraries=["pkg.x"])
     settings = json.loads(settings_path.read_text())
     assert settings["env"] == {"FOO": "bar"}
+
+
+# ---- --plugin mode ---------------------------------------------------
+
+
+def test_plugin_mode_writes_only_the_library_list(tmp_path):
+    """With the plugin installed, the server, hook, skill and agent all come
+    from it. Writing project copies as well registers each of them twice — two
+    `clops` MCP servers competing for one name, and a hook forwarding the same
+    SubagentStop payload to the socket twice.
+
+    `.clops` is the exception because it is the only genuinely per-project
+    thing: a globally-installed server has no way to know which libraries this
+    project wants.
+    """
+    written = init_project(tmp_path, ["my_ops"], plugin_provides_wiring=True)
+
+    assert set(written) <= {"clops", "gitignore"}
+    assert (tmp_path / ".clops").exists()
+    assert not (tmp_path / ".mcp.json").exists()
+    assert not (tmp_path / ".claude" / "settings.json").exists()
+    assert not (tmp_path / ".claude" / "agents" / "clops-executor.md").exists()
+    assert not (tmp_path / ".claude" / "skills").exists()
+
+
+def test_default_mode_is_unchanged(tmp_path):
+    """The standalone path must keep writing everything — `--plugin` is opt-in,
+    and someone without the plugin who gets a bare `.clops` has nothing."""
+    written = init_project(tmp_path, ["my_ops"])
+
+    assert (tmp_path / ".mcp.json").exists()
+    assert (tmp_path / ".claude" / "settings.json").exists()
+    assert (tmp_path / ".claude" / "agents" / "clops-executor.md").exists()
+    assert (tmp_path / ".claude" / "skills" / "clops-orchestration" / "SKILL.md").exists()
+    assert "mcp_json" in written
