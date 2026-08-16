@@ -277,20 +277,24 @@ def init_project(
     one name, and a hook firing the same payload at the socket twice. Only
     ``.clops`` is genuinely per-project, because only the library list is.
     """
-    from clops.runtime.clops import _parse_library_line
+    from clops.runtime.clops import read_clops_config
 
     project_dir = project_dir.resolve()
     project_dir.mkdir(parents=True, exist_ok=True)
 
-    # Parse library entries to separate modules from sources.
-    entries = [_parse_library_line(lib) for lib in libraries]
-    modules = [e.module for e in entries]
-    sources = [e.source for e in entries if e.source is not None]
-
     written: dict[str, Path] = {}
     written["clops"] = write_clops(project_dir, libraries)
     if not plugin_provides_wiring:
-        written["mcp_json"] = write_mcp_json(project_dir, modules, sources, server_name)
+        # Build .mcp.json from the merged `.clops`, not from this invocation's
+        # flags. `write_clops` merges; `.mcp.json` used to be rewritten from
+        # `libraries` alone, so `clops init --library b` on a project that
+        # already had `a` produced a `.clops` listing both and a server told to
+        # load only `b`. The library did not fail — it silently vanished, which
+        # is worse. The file on disk is the source of truth; read it back.
+        merged = read_clops_config(project_dir)
+        written["mcp_json"] = write_mcp_json(
+            project_dir, merged.libraries, merged.sources, server_name
+        )
         written["settings"] = write_settings(project_dir)
         written["clops_executor"] = write_clops_executor(project_dir)
         if write_skill_file:

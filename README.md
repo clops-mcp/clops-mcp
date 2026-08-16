@@ -46,7 +46,7 @@ coming back, clops buys you nothing.
 | Objection | Answer |
 |---|---|
 | "Just write a skill." | A detailed skill is one long document Claude must self-apply. clops hands the agent one step at a time, with only that step's context. |
-| "Skills and slash commands are simpler." | They are, until you have twenty of them. A clops Op library of any size adds **zero** MCP tools — the surface is fixed at 11. Two hundred Ops do not crowd the namespace. |
+| "Skills and slash commands are simpler." | They are, until you have twenty of them. A clops Op library of any size adds **zero** MCP tools — the surface is fixed at 12. Two hundred Ops do not crowd the namespace. |
 | "Isn't that the same thing?" | Invocation is explicit: *run the dev workflow*, *run the support triage*. It runs the same way each time without you re-steering it. |
 | "Where does the reliability come from?" | Structure the model can't skip. Sequencing, branching, and state live in Python and are walked by the runtime, not inferred by an agent reading instructions. |
 
@@ -143,7 +143,7 @@ To register the server by hand instead — in Cursor, Zed, or behind a gateway:
 }
 ```
 
-With no `--library`, the server reads `.clops` from the project directory.
+With no `--library`, the server reads `.clops` from the project directory. Add `--default-library clops.example_library.session_analyzer` to fall back to a bundled example when a project has not configured one — that is what the plugin does, so a fresh install has something to run.
 
 > **Mind the distribution name.** It is **`clops-mcp`**; the import package and
 > the CLI are both `clops`. `pip install clops` gets you an unrelated project.
@@ -320,9 +320,11 @@ All four are non-interactive. `init` merges into an existing `.clops` and
 `.claude/settings.json`, and `new-library` refuses to overwrite an existing
 directory without `--force`.
 
-> **`clops init` overwrites `.mcp.json` wholesale.** If your project already
-> registers other MCP servers there, back the file up and merge the `clops`
-> entry back in by hand. This is a known rough edge, not intended behaviour.
+> **`clops init` overwrites `.mcp.json` wholesale.** Your clops libraries are
+> safe — the file is rebuilt from `.clops`, which merges, so adding a second
+> library keeps the first. But **other** MCP servers registered in that file are
+> lost. Back it up and merge them back in by hand. A known rough edge, not
+> intended behaviour.
 
 ## Project configuration
 
@@ -356,7 +358,7 @@ this is what you get.
 
 | Component | What it does |
 |---|---|
-| MCP server `clops` | `uvx clops-mcp`, no `--library` — it reads each project's `.clops` |
+| MCP server `clops` | `uvx clops-mcp`, no `--library` — it reads each project's `.clops`, falling back to a bundled example when a project has none |
 | `SubagentStop` hook | Forwards the stop payload to the run's socket so the runtime sees step completion |
 | Skill `clops-orchestration` | The dispatch relay loop |
 | Agent `clops-executor` | The subagent template each step is dispatched to |

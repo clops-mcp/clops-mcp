@@ -5,6 +5,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 from clops.cli.init import (
     DEFAULT_INSTALL_SPEC,
     GITIGNORE_LINE,
@@ -277,3 +279,71 @@ def test_default_mode_is_unchanged(tmp_path):
     assert (tmp_path / ".claude" / "agents" / "clops-executor.md").exists()
     assert (tmp_path / ".claude" / "skills" / "clops-orchestration" / "SKILL.md").exists()
     assert "mcp_json" in written
+
+
+# ---- the shipped skill, and its copies -------------------------------
+
+
+def test_smoke_test_fixtures_carry_the_shipped_skill():
+    """Eleven smoke-test projects each hold a copy of the orchestration skill,
+    because each is a self-contained project that `clops init` set up.
+
+    Eleven copies of one file is a drift factory, and a stale copy is worse
+    than no copy: the scenario then exercises instructions that do not ship,
+    and passes or fails for the wrong reason. Found exactly that after slimming
+    the skill — all eleven still held the old 50-line version.
+    """
+    from clops.cli.init import SKILL_SRC
+
+    root = Path(__file__).resolve().parent.parent
+    fixtures = sorted(
+        root.glob("smoke-tests/*/.claude/skills/clops-orchestration/SKILL.md")
+    )
+    if not fixtures:  # pragma: no cover - sdist prunes smoke-tests
+        pytest.skip("smoke-tests not present")
+
+    canonical = SKILL_SRC.read_text()
+    stale = [str(f.relative_to(root)) for f in fixtures if f.read_text() != canonical]
+    assert not stale, "these copies have drifted from the shipped skill: " + ", ".join(stale)
+
+
+def test_adding_a_second_library_keeps_the_first(tmp_path):
+    """`clops init --library b` on a project that already has `a` must keep `a`.
+
+    `write_clops` has always merged, but `.mcp.json` was rebuilt from the
+    current invocation's flags alone — so `.clops` listed both and the server
+    was told to load only the new one. The first library did not fail to load,
+    it silently vanished, which is the worse failure.
+
+    Adding a library is the single most common thing anyone will do to an
+    existing clops project, so this is the path that has to hold.
+    """
+    init_project(tmp_path, ["a_ops @ ./a_ops"])
+    init_project(tmp_path, ["b_ops @ ./b_ops"])
+
+    args = json.loads((tmp_path / ".mcp.json").read_text())["mcpServers"][MCP_SERVER_NAME]["args"]
+    assert args.count("--library") == 2
+    assert {"a_ops", "b_ops"} <= set(args)
+    # Sources too — a library that is listed but not installed cannot import.
+    assert args.count("--with") == 2
+    assert {"./a_ops", "./b_ops"} <= set(args)
+
+
+def test_re_running_init_with_the_same_library_does_not_duplicate_it(tmp_path):
+    """`write_clops` dedupes, and .mcp.json is now built from that same list,
+    so a repeated init is idempotent rather than additive."""
+    init_project(tmp_path, ["a_ops @ ./a_ops"])
+    first = (tmp_path / ".mcp.json").read_text()
+    init_project(tmp_path, ["a_ops @ ./a_ops"])
+    assert (tmp_path / ".mcp.json").read_text() == first
+
+
+def test_mcp_json_tracks_dot_clops_even_for_libraries_added_by_hand(tmp_path):
+    """`.clops` is the source of truth. Someone who edits it directly and
+    re-runs init should get a server that matches the file."""
+    init_project(tmp_path, ["a_ops"])
+    (tmp_path / ".clops").write_text("# libs\na_ops\nhand_added_ops\n")
+    init_project(tmp_path, ["c_ops"])
+
+    args = json.loads((tmp_path / ".mcp.json").read_text())["mcpServers"][MCP_SERVER_NAME]["args"]
+    assert {"a_ops", "hand_added_ops", "c_ops"} <= set(args)

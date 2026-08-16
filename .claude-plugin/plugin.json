@@ -13,7 +13,9 @@
     "clops": {
       "command": "uvx",
       "args": [
-        "clops-mcp"
+        "clops-mcp",
+        "--default-library",
+        "clops.example_library.session_analyzer"
       ]
     }
   },
