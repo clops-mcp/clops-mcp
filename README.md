@@ -46,7 +46,7 @@ coming back, clops buys you nothing.
 | Objection | Answer |
 |---|---|
 | "Just write a skill." | A detailed skill is one long document Claude must self-apply. clops hands the agent one step at a time, with only that step's context. |
-| "Skills and slash commands are simpler." | They are, until you have twenty of them. A clops Op library of any size adds **zero** MCP tools — the surface is fixed at 11. Two hundred Ops do not crowd the namespace. |
+| "Skills and slash commands are simpler." | They are, until you have twenty of them. A clops Op library of any size adds **zero** MCP tools — the surface is fixed at 12. Two hundred Ops do not crowd the namespace. |
 | "Isn't that the same thing?" | Invocation is explicit: *run the dev workflow*, *run the support triage*. It runs the same way each time without you re-steering it. |
 | "Where does the reliability come from?" | Structure the model can't skip. Sequencing, branching, and state live in Python and are walked by the runtime, not inferred by an agent reading instructions. |
 
