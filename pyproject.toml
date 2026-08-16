@@ -7,7 +7,7 @@ build-backend = "setuptools.build_meta"
 # Distribution name on PyPI. The import package and CLI stay `clops`
 # (`clops` on PyPI is an unrelated package, so the distribution is `clops-mcp`).
 name = "clops-mcp"
-version = "0.4.1"
+version = "0.4.4"
 description = "Long-running, multi-step Claude Code workflows, written in Python and run one focused step at a time."
 readme = "README.md"
 requires-python = ">=3.11"
