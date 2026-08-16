@@ -15,8 +15,12 @@ name: Release
 # THE TAG IS THE VERSION. You do not bump anything by hand. The run rewrites
 # every place the version is written — pyproject.toml, server.json, both plugin
 # manifests, the README, two docstring examples — from the tag, before it builds
-# anything, and afterwards opens a PR putting main in step. `scripts/set_version.py`
-# holds the list of places; add a seventh there and this picks it up for free.
+# anything. `scripts/set_version.py` holds the list of places; add a seventh
+# there and this picks it up for free.
+#
+# What main says is not authoritative and is not synced back. The tag decides
+# what ships. Run `python scripts/set_version.py <version>` if you want the
+# committed files to match a release.
 #
 # What a run does, in order, stopping at the first failure:
 #   - checks out the release's tag (not the branch it was dispatched from)
@@ -27,7 +31,6 @@ name: Release
 #   - publishes clops-mcp to PyPI (trusted publishing / OIDC)
 #   - creates a GitHub release, on the dispatch path only — on the release path
 #     the release is what started the run and already exists
-#   - opens a PR syncing the version back to main, unless it already matched
 #
 # To cut a release:
 #   1. git tag -a vX.Y.Z -m "..." && git push origin vX.Y.Z
@@ -65,7 +68,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "Tag to release, e.g. v0.4.0. Must already be pushed, and must match the version in pyproject.toml."
+        description: "Tag to release, e.g. v0.4.2. Must already be pushed. Its version is what gets published."
         required: true
         type: string
 
@@ -73,54 +76,45 @@ jobs:
   release:
     runs-on: ubuntu-latest
     permissions:
-      id-token: write        # PyPI trusted publishing (OIDC)
-      contents: write        # create the GitHub release, push the sync branch
-      pull-requests: write   # open the version-sync PR
+      id-token: write   # PyPI trusted publishing (OIDC)
+      contents: write   # create the GitHub release on the dispatch path
     env:
       # One name for the tag whichever trigger fired. `inputs.tag` is empty on
       # the release path, `github.event.release` is empty on the dispatch path.
       TAG: ${{ inputs.tag || github.event.release.tag_name }}
     steps:
-      # This workflow uses NO third-party actions, by policy: the org requires
-      # actions to be owned by clops-mcp and pinned to a full-length SHA, which
-      # rules out actions/checkout and astral-sh/setup-uv. Doing both by hand is
-      # a dozen lines and, for a job holding `id-token: write` against PyPI,
-      # removes the one class of supply-chain risk that could publish as us.
+      # Both actions are pinned to a full-length SHA, which the repo requires
+      # (`sha_pinning_required`). A moving tag like @v7 is the actual attack
+      # here — the tag gets repointed at a malicious commit and every workflow
+      # trusting it runs that code, in a job holding `id-token: write` against
+      # PyPI. A SHA cannot be repointed.
+      #
+      # The comment beside each pin is the tag it was at when pinned; it is a
+      # note to a human, not something git enforces. Re-pin deliberately.
+      #
+      # Allowed because the repo is `allowed_actions: selected` with
+      # `github_owned_allowed` (actions/*) and `verified_allowed` (astral-sh is
+      # a verified org). Neither is in `patterns_allowed`, so neither needs to
+      # be — if either loses that status, this fails loudly at startup rather
+      # than silently running something else.
       #
       # Checks out the TAG, not the branch. Under workflow_dispatch the default
       # ref is the branch it was dispatched from, so without this the job builds
       # whatever is on main and publishes it under the tag's name — silently
       # divergent the moment anything lands after the tag.
       - name: Check out the tag
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          git init -q .
-          git remote add origin "https://github.com/${GITHUB_REPOSITORY}.git"
-          # Auth as a header rather than in the remote URL, so the token is not
-          # sitting in .git/config for every later command to echo. Reads are
-          # anonymous on a public repo; this is here for the sync-branch push.
-          git config --local "http.https://github.com/.extraheader" \
-            "AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
-          # Full history, not --depth 1: the sync step branches from this commit
-          # and pushes, and pushing from a shallow clone is rejected.
-          git fetch -q --tags origin
-          git checkout -q --detach "${TAG}"
-          echo "Checked out $(git rev-parse --short HEAD) (${TAG})"
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ env.TAG }}
 
       - name: Install uv
-        # Pinned exactly. `curl | sh` from astral.sh would satisfy the letter of
-        # the policy while reintroducing exactly what it is trying to prevent —
-        # an unpinned third-party fetch in a job that can publish to PyPI.
-        # Installed into its own venv because the runner's system Python is
-        # externally managed and rejects a plain `pip install`.
-        env:
-          UV_VERSION: "0.12.5"
-        run: |
-          python3 -m venv /tmp/uvenv
-          /tmp/uvenv/bin/pip install --quiet --disable-pip-version-check "uv==${UV_VERSION}"
-          echo /tmp/uvenv/bin >> "$GITHUB_PATH"
-          /tmp/uvenv/bin/uv --version
+        # uv itself is pinned too. Letting it float means a release could be
+        # built by a resolver nobody chose, which is the same class of problem
+        # the SHA pins address one level up.
+        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        with:
+          version: "0.12.5"
+          python-version: "3.12"
 
       - name: Set the version from the tag
         # The tag is the source of truth. Every place the version is written
@@ -251,42 +245,13 @@ jobs:
         # creates a release pointing at a tag that does not exist.
         run: gh release create "${TAG}" --generate-notes --verify-tag
 
-      # The build rewrote the version in the checkout; main still has whatever
-      # was committed. This puts the two back in step without anyone editing
-      # anything, and opens a PR rather than pushing, so nothing reaches main
-      # unreviewed.
+      # The version rewrite is deliberately NOT synced back to main. main
+      # carries whatever version it carries; the tag decides what ships. If the
+      # two drift, `python scripts/set_version.py <version>` fixes it in one
+      # command whenever someone cares.
       #
-      # No-ops when the versions already agreed — which is the case when the
-      # bump was merged before tagging. So both workflows are supported: bump
-      # first and this stays quiet, or just tag and let it catch main up.
-      - name: Open a PR syncing the version back to main
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          if git diff --quiet; then
-            echo "main is already at ${TAG} — nothing to sync."
-            exit 0
-          fi
-
-          version="${TAG#v}"
-          branch="chore/sync-version-${version}"
-          git config user.name  "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          # Branch off the tag we built, so the PR carries the released
-          # version and nothing else.
-          git switch -c "$branch"
-          git commit -aqm "Set the version to ${version}
-
-          Written by the release workflow from tag ${TAG}. The release itself
-          already shipped with these values; this is main catching up."
-          git push -q origin "$branch"
-          gh pr create \
-            --base main --head "$branch" \
-            --title "Set the version to ${version}" \
-            --body "Opened by the release workflow after publishing \`${TAG}\`.
-
-          The released artifacts were built with \`${version}\` in every
-          location. This brings \`main\` into line — no behaviour change, and
-          nothing here was hand-written.
-
-          Generated by \`scripts/set_version.py\`."
+      # The step that used to open a sync PR is gone. It failed on 0.4.2 —
+      # "GitHub Actions is not permitted to create or approve pull requests",
+      # an org setting — and turned a release that had already published to
+      # PyPI into a red run, which is a worse outcome than the drift it was
+      # tidying up.
