@@ -1,28 +1,36 @@
 name: Release
 
-# Releases are MANUAL. Actions → Release → "Run workflow", give it an existing
-# tag. There is deliberately no `push: tags` trigger — a PyPI version can never
-# be reused or reverted, so cutting one has to be something a person chose to
-# do, not something a `git push --tags` did on the way past.
+# Releases are MANUAL, and there are two ways to start one:
+#
+#   1. Publish a GitHub release (Releases → Draft a new release). This is the
+#      normal path.
+#   2. Actions → Release → "Run workflow", giving it an existing tag. Use this
+#      to re-run after a failure, since a release can only be published once.
+#
+# There is deliberately no `push: tags` trigger. A PyPI version can never be
+# reused or reverted, so cutting one has to be something a person chose to do,
+# not something a `git push --tags` did on the way past. Publishing a release
+# and clicking "Run workflow" are both that choice; pushing a tag is not.
 #
 # What a run does, in order, stopping at the first failure:
-#   - checks out the tag you named (not the branch you ran from)
+#   - checks out the release's tag (not the branch it was dispatched from)
 #   - verifies the tag matches the version in pyproject.toml
 #   - runs the test suite
 #   - builds the sdist + wheel
 #   - installs the wheel into a clean venv with no lockfile and exercises it
 #   - publishes clops-mcp to PyPI (trusted publishing / OIDC)
-#   - creates a GitHub release with generated notes
+#   - creates a GitHub release, on the dispatch path only — on the release path
+#     the release is what started the run and already exists
 #
 # To cut a release:
-#   1. bump `version` in pyproject.toml, commit, push
-#   2. git tag -a v0.3.1 -m "..." && git push origin v0.3.1
-#   3. run this workflow with tag = v0.3.1
+#   1. bump `version` in pyproject.toml, commit, merge
+#   2. git tag -a v0.4.0 -m "..." && git push origin v0.4.0
+#   3. publish a GitHub release for that tag
 #
-# Publishing is additionally gated on the PUBLISH_PYPI repo variable being
-# "true" (Settings → Secrets and variables → Actions → Variables). Setting it
-# to anything else turns any run into a build-and-verify dry run, which is a
-# useful thing to do on a release candidate.
+# Publishing a release IS the authorisation — there is no second switch to set.
+# If you want a dry run, publish a **pre-release** version (`0.4.0rc1`): the
+# whole pipeline runs, and `uv tool install clops-mcp` will not pick it up
+# because pip and uv exclude pre-releases by default.
 #
 # One-time PyPI setup (trusted publishing — no token stored in the repo):
 #   PyPI → your project (or "pending publisher") → Publishing → add a
@@ -46,10 +54,12 @@ name: Release
 # missing OIDC config fail loudly instead of silently looking for a token.)
 
 on:
+  release:
+    types: [published]
   workflow_dispatch:
     inputs:
       tag:
-        description: "Tag to release, e.g. v0.3.1. Must already be pushed, and must match the version in pyproject.toml."
+        description: "Tag to release, e.g. v0.4.0. Must already be pushed, and must match the version in pyproject.toml."
         required: true
         type: string
 
@@ -60,15 +70,17 @@ jobs:
       id-token: write   # PyPI trusted publishing (OIDC)
       contents: write   # create the GitHub release
     env:
-      TAG: ${{ inputs.tag }}
+      # One name for the tag whichever trigger fired. `inputs.tag` is empty on
+      # the release path, `github.event.release` is empty on the dispatch path.
+      TAG: ${{ inputs.tag || github.event.release.tag_name }}
     steps:
-      # Check out the TAG, not the branch the workflow was dispatched from.
-      # Without `ref:` this builds whatever is on the default branch and
-      # publishes it under the tag's name — the two would silently differ the
-      # moment anything lands after the tag.
+      # Check out the TAG, not the branch. Under workflow_dispatch the default
+      # ref is the branch it was dispatched from, so without this the job builds
+      # whatever is on main and publishes it under the tag's name — silently
+      # divergent the moment anything lands after the tag.
       - uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.tag }}
+          ref: ${{ env.TAG }}
 
       - name: Install uv
         uses: astral-sh/setup-uv@v5
@@ -76,14 +88,26 @@ jobs:
           python-version: "3.12"
 
       - name: Verify tag matches package version
+        # Compared as PEP 440 versions, not as strings. `v0.4` and `v0.4.0` are
+        # the same release and PyPI normalises them to the same thing, so a
+        # literal `!=` rejects a tag that is in fact correct — which is exactly
+        # what happened to the first v0.4.
         run: |
-          tag="${TAG#v}"
-          ver="$(grep -m1 '^version = ' pyproject.toml | sed -E 's/version = "(.*)"/\1/')"
-          if [ "$tag" != "$ver" ]; then
-            echo "::error::tag ${TAG} does not match pyproject version ${ver}"
-            exit 1
-          fi
-          echo "Releasing clops-mcp ${ver} from ${TAG}"
+          uv run --no-project --with packaging python - <<'PY'
+          import os, re, sys
+          from packaging.version import InvalidVersion, Version
+
+          tag = os.environ["TAG"]
+          ver = re.search(r'^version = "(.*)"$', open("pyproject.toml").read(), re.M).group(1)
+          try:
+              ok = Version(tag.removeprefix("v")) == Version(ver)
+          except InvalidVersion:
+              ok = False
+          if not ok:
+              print(f"::error::tag {tag} does not match pyproject version {ver}")
+              sys.exit(1)
+          print(f"Releasing clops-mcp {ver} from {tag}")
+          PY
 
       - name: Run tests
         run: uv run --extra dev pytest -q
@@ -145,12 +169,12 @@ jobs:
           test -x /tmp/smoke/bin/clops-server
           test -x /tmp/smoke/bin/clops-hook
 
-      # clops-mcp is not on PyPI yet. Publishing is gated on the `PUBLISH_PYPI`
-      # repo variable so tag releases don't fail on the missing trusted
-      # publisher — set it to "true" (Settings → Secrets and variables →
-      # Actions → Variables) once the PyPI trusted publisher is configured.
+      # Publishing a GitHub release is the gate. There is no second switch — a
+      # repo variable that has to be set for a release to actually release is a
+      # thing you forget, and forgetting it produces a green run that published
+      # nothing. Everything above this line has to pass first; this is simply
+      # the last step.
       - name: Publish to PyPI
-        if: ${{ vars.PUBLISH_PYPI == 'true' }}
         # --trusted-publishing always: fail loudly if OIDC isn't configured
         # rather than falling back to hunting for credentials that aren't there.
         # --check-url: makes a re-run after a partial failure skip files already
@@ -160,14 +184,11 @@ jobs:
             --trusted-publishing always \
             --check-url https://pypi.org/simple/clops-mcp/
 
-      # Without this, forgetting to set PUBLISH_PYPI produces a green run and a
-      # GitHub release with nothing on PyPI — a silent no-op that looks like success.
-      - name: Warn that PyPI publishing was skipped
-        if: ${{ vars.PUBLISH_PYPI != 'true' }}
-        run: |
-          echo "::warning::PUBLISH_PYPI is not 'true' — built ${TAG} but did NOT publish to PyPI."
-
+      # Dispatch path only. On the release path the release is what started this
+      # run, so creating one would fail on "release already exists" and turn a
+      # successful publish into a red run.
       - name: Create GitHub release
+        if: ${{ github.event_name == 'workflow_dispatch' }}
         env:
           GH_TOKEN: ${{ github.token }}
         # --verify-tag: refuse to invent a tag. Without it, a typo in the input
