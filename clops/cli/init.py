@@ -59,8 +59,8 @@ def install_spec() -> str:
 
     Defaults to the PyPI distribution, so a generated project needs nothing but
     ``uv``. ``CLOPS_INSTALL_SPEC`` overrides it entirely, and the three cases
-    that matter are a pinned release (``clops-mcp==0.4.0``), a git ref
-    (``git+https://github.com/clops-mcp/clops-mcp@v0.4.0``), and a local
+    that matter are a pinned release (``clops-mcp==0.4.1``), a git ref
+    (``git+https://github.com/clops-mcp/clops-mcp@v0.4.1``), and a local
     checkout (``/path/to/clops``) when you are working on clops itself.
 
     One spec, not two, because the generated MCP server and the generated hook

@@ -24,7 +24,7 @@ name: Release
 #
 # To cut a release:
 #   1. bump `version` in pyproject.toml, commit, merge
-#   2. git tag -a v0.4.0 -m "..." && git push origin v0.4.0
+#   2. git tag -a v0.4.1 -m "..." && git push origin v0.4.1
 #   3. publish a GitHub release for that tag
 #
 # Publishing a release IS the authorisation — there is no second switch to set.
