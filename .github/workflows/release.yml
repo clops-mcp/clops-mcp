@@ -27,10 +27,10 @@ name: Release
 #   2. git tag -a v0.4.0 -m "..." && git push origin v0.4.0
 #   3. publish a GitHub release for that tag
 #
-# Publishing is additionally gated on the PUBLISH_PYPI repo variable being
-# "true" (Settings → Secrets and variables → Actions → Variables). Setting it
-# to anything else turns any run into a build-and-verify dry run, which is a
-# useful thing to do on a release candidate.
+# Publishing a release IS the authorisation — there is no second switch to set.
+# If you want a dry run, publish a **pre-release** version (`0.4.0rc1`): the
+# whole pipeline runs, and `uv tool install clops-mcp` will not pick it up
+# because pip and uv exclude pre-releases by default.
 #
 # One-time PyPI setup (trusted publishing — no token stored in the repo):
 #   PyPI → your project (or "pending publisher") → Publishing → add a
@@ -169,12 +169,12 @@ jobs:
           test -x /tmp/smoke/bin/clops-server
           test -x /tmp/smoke/bin/clops-hook
 
-      # Publishing is gated on the `PUBLISH_PYPI` repo variable (Settings →
-      # Secrets and variables → Actions → Variables). Unset, every run is a
-      # build-and-verify dry run: it proves the tag, the tests, the wheel and a
-      # clean-venv install, then stops short of the one irreversible step.
+      # Publishing a GitHub release is the gate. There is no second switch — a
+      # repo variable that has to be set for a release to actually release is a
+      # thing you forget, and forgetting it produces a green run that published
+      # nothing. Everything above this line has to pass first; this is simply
+      # the last step.
       - name: Publish to PyPI
-        if: ${{ vars.PUBLISH_PYPI == 'true' }}
         # --trusted-publishing always: fail loudly if OIDC isn't configured
         # rather than falling back to hunting for credentials that aren't there.
         # --check-url: makes a re-run after a partial failure skip files already
@@ -183,13 +183,6 @@ jobs:
           uv publish \
             --trusted-publishing always \
             --check-url https://pypi.org/simple/clops-mcp/
-
-      # Without this, forgetting to set PUBLISH_PYPI produces a green run and a
-      # GitHub release with nothing on PyPI — a silent no-op that looks like success.
-      - name: Warn that PyPI publishing was skipped
-        if: ${{ vars.PUBLISH_PYPI != 'true' }}
-        run: |
-          echo "::warning::PUBLISH_PYPI is not 'true' — built ${TAG} but did NOT publish to PyPI."
 
       # Dispatch path only. On the release path the release is what started this
       # run, so creating one would fail on "release already exists" and turn a
