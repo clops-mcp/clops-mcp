@@ -808,7 +808,32 @@ def build_server_from_argv(argv: list[str]) -> FlowServer:
             f"CLOPS_TOOL_PATTERN. Default: {naming.DEFAULT_TOOL_PATTERN}"
         ),
     )
-    ns = parser.parse_args(argv)
+    # Tolerate flags this build does not know, rather than exiting.
+    #
+    # The plugin manifest and the package are distributed through different
+    # channels — the manifest from the repo's default branch, the package from
+    # PyPI — so a manifest can reference a flag whose release has not landed
+    # yet. That happened with `--default-library`: plugin 0.4.4 launched
+    # `uvx clops-mcp --default-library …`, uvx resolved 0.4.4, argparse exited
+    # before the MCP handshake, and Claude Code reported
+    # `-32000: Connection closed`. The real error was three levels down in a
+    # log file; the symptom told you nothing.
+    #
+    # Degrading is strictly better here. An ignored flag costs one feature; a
+    # non-negotiable exit costs the whole server, and costs it in the least
+    # debuggable way available. The warning goes to stderr, which is where the
+    # MCP client already collects logs.
+    ns, unknown = parser.parse_known_args(argv)
+    if unknown:
+        import sys as _sys
+
+        print(
+            f"clops-mcp: ignoring unrecognised arguments: {' '.join(unknown)}\n"
+            "clops-mcp: this build does not support them — it is probably older "
+            "than whatever launched it. Starting anyway; the features they "
+            "control are off. Call configure_clops for the current state.",
+            file=_sys.stderr,
+        )
 
     # Both set before anything renders a prompt: dispatch text and the hook's
     # block message name tools by these, and naming the wrong one tells a

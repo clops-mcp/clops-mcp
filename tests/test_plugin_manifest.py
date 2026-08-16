@@ -33,7 +33,7 @@ def test_the_plugin_registers_the_mcp_server(plugin):
     relay loop against a server the user does not have."""
     server = plugin["mcpServers"]["clops"]
     assert server["command"] == "uvx"
-    assert server["args"][0] == "clops-mcp"
+    assert "clops-mcp" in server["args"]
 
 
 def test_the_plugin_server_passes_no_library(plugin):
@@ -68,3 +68,77 @@ def test_declared_paths_exist(plugin, declared):
     entries = plugin[declared]
     for rel in [entries] if isinstance(entries, str) else entries:
         assert (root / rel.lstrip("./")).exists(), f"{declared}: {rel} does not exist"
+
+
+# ---- manifest / package skew -----------------------------------------
+
+
+def _server_args(plugin) -> list[str]:
+    """The part of the uvx command line that clops-mcp itself receives.
+
+    Everything before the `clops-mcp` element is uvx's (`--from`, `--with`);
+    everything after is the server's.
+    """
+    args = plugin["mcpServers"]["clops"]["args"]
+    return args[args.index("clops-mcp") + 1 :]
+
+
+def test_every_flag_the_manifest_passes_is_one_the_server_knows(plugin):
+    """The manifest and the package ship through different channels — the
+    manifest from this repo's default branch, the package from PyPI — so they
+    can disagree about what flags exist.
+
+    That disagreement cost a broken install: plugin 0.4.4 passed
+    `--default-library`, which did not land in the package until 0.4.5, and the
+    server argparse-exited before the MCP handshake. Claude Code reported
+    `-32000: Connection closed`, which says nothing about the cause.
+
+    This catches the direction CI can see: a manifest naming a flag this
+    codebase does not have.
+    """
+    from clops.runtime.mcp_server import build_server_from_argv
+
+    flags = [a for a in _server_args(plugin) if a.startswith("--")]
+    assert flags, "manifest passes no server flags — did the args shape change?"
+
+    # Round-trip the real command line. `build_server_from_argv` now tolerates
+    # unknown flags, so assert on what it *reports* rather than on it exiting.
+    import io
+    import contextlib
+
+    err = io.StringIO()
+    with contextlib.redirect_stderr(err):
+        build_server_from_argv(_server_args(plugin))
+    assert "unrecognised arguments" not in err.getvalue(), (
+        "the manifest passes a flag this build does not implement: " + err.getvalue()
+    )
+
+
+def test_the_manifest_pins_a_version_floor(plugin):
+    """Bare `uvx clops-mcp` always takes latest, which is what opened the
+    window: the manifest shipped a flag before the release implementing it.
+
+    The floor must be the version that introduced the newest flag the manifest
+    uses — not the current version, because `main` is ahead of PyPI between
+    merging a release PR and publishing it. A floor equal to the repo version
+    would demand something unpublished.
+    """
+    args = plugin["mcpServers"]["clops"]["args"]
+    assert args[0] == "--from", "no version floor — `uvx clops-mcp` takes latest"
+    spec = args[1]
+    assert spec.startswith("clops-mcp>="), f"expected a floor, got {spec!r}"
+
+
+def test_the_floor_is_a_version_that_actually_exists_here(plugin):
+    """A floor above this codebase's own version can never be satisfied by a
+    release cut from it."""
+    import tomllib
+    from pathlib import Path
+
+    from packaging.version import Version
+
+    args = plugin["mcpServers"]["clops"]["args"]
+    floor = Version(args[1].split(">=", 1)[1])
+    pyproject = Path(__file__).resolve().parent.parent / "pyproject.toml"
+    current = Version(tomllib.loads(pyproject.read_text())["project"]["version"])
+    assert floor <= current, f"floor {floor} exceeds this repo's version {current}"
