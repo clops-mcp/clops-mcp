@@ -276,3 +276,33 @@ def test_list_processes_reads_a_stringified_flag(server_with_ops):
     srv, _, _ = server_with_ops
     assert srv._handle_list_processes({"descriptions": "false"}) == ["Echo"]
     assert srv._handle_list_processes({"descriptions": "true"})[0]["name"] == "Echo"
+
+
+def test_list_processes_filters_through_the_dispatch_path(server_with_ops):
+    srv, _, _ = server_with_ops
+    assert srv._handle_list_processes({"processes": ["Echo"]}) == ["Echo"]
+
+
+def test_list_processes_reads_a_stringified_name_list(server_with_ops):
+    """A model filling in the call may send one bare name, a JSON string, or a
+    comma-separated one. None of those are ambiguous, so none should error."""
+    srv, _, _ = server_with_ops
+    for value in ("Echo", '["Echo"]', "Echo, Echo"):
+        assert srv._handle_list_processes({"processes": value}) == ["Echo"]
+
+
+def test_list_processes_advertises_the_processes_filter(server_with_ops):
+    srv, _, _ = server_with_ops
+    tool = next(t for t in srv._build_tool_catalog() if t.name == "list_processes")
+    schema = tool.inputSchema["properties"]["processes"]
+    assert schema["type"] == "array"
+    assert schema["items"]["type"] == "string"
+
+
+def test_list_processes_unknown_name_is_a_structured_error(server_with_ops):
+    import json
+
+    srv, _, _ = server_with_ops
+    result = srv._dispatch_tool_call("list_processes", {"processes": ["Nope"]})
+    payload = json.loads(result[0].text)
+    assert "Nope" in payload["error"]

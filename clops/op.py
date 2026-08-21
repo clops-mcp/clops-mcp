@@ -52,6 +52,34 @@ _CLAUSE_BREAK = re.compile(r"[:;]")
 # label-style Intent ("Goal: review the diff") would leave the word "Goal".
 _MIN_CLAUSE = 40
 
+#: Roughly what a whole described catalog should cost to read, in characters.
+#: Not a hard ceiling — see `description_cap_for`, which spends it.
+DESCRIPTION_BUDGET = 2000
+
+#: Below this a description stops being one, so the budget gives way rather
+#: than shaving every line down to a stub.
+MIN_DESCRIPTION = 60
+
+
+def description_cap_for(count: int) -> int:
+    """How long each description may be when listing `count` processes.
+
+    `SHORT_DESCRIPTION_MAX` bounds one line; nothing bounded the listing. Three
+    processes cost 500 characters, which is the feature working — but a library
+    with eighty of them costs 13,000, and an agent that asked "what can I run?"
+    has just paid more for the answer than for most of the work. So the budget
+    is spent across the catalog: small catalogs get the full line, large ones
+    get terser ones, and past `MIN_DESCRIPTION` the shrinking stops — a
+    forty-character stub is not a cheaper description, it is a worse one.
+
+    The escape hatch is the filter: `list_processes(processes=[...])` narrows
+    the count, so asking about five processes buys full-length lines for those
+    five however big the library is.
+    """
+    if count <= 0:
+        return SHORT_DESCRIPTION_MAX
+    return max(MIN_DESCRIPTION, min(SHORT_DESCRIPTION_MAX, DESCRIPTION_BUDGET // count))
+
 
 def _truncate(text: str, max_chars: int) -> str:
     if len(text) <= max_chars:

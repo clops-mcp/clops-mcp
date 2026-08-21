@@ -2,8 +2,11 @@ import pytest
 
 from clops import Concept, Op, sequence
 from clops.op import (
+    DESCRIPTION_BUDGET,
+    MIN_DESCRIPTION,
     SHORT_DESCRIPTION_MAX,
     OpMeta,
+    description_cap_for,
     short_description,
 )
 from clops.registry import registry
@@ -214,3 +217,29 @@ def test_short_description_of_an_op_without_intent_is_empty():
         pass
 
     assert short_description(Bare) == ""
+
+
+# ---- description_cap_for ---------------------------------------------
+
+
+def test_description_cap_is_full_length_for_a_small_catalog():
+    assert description_cap_for(1) == SHORT_DESCRIPTION_MAX
+    assert description_cap_for(10) == SHORT_DESCRIPTION_MAX
+
+
+def test_description_cap_shrinks_as_the_catalog_grows():
+    assert description_cap_for(25) < description_cap_for(12)
+
+
+def test_description_cap_never_goes_below_the_floor():
+    """Past a point a shorter line is a worse description, not a cheaper one."""
+    assert description_cap_for(500) == MIN_DESCRIPTION
+
+
+def test_description_cap_keeps_a_big_catalog_near_the_budget():
+    for count in (13, 20, 25, 33):
+        assert count * description_cap_for(count) <= DESCRIPTION_BUDGET
+
+
+def test_description_cap_handles_an_empty_catalog():
+    assert description_cap_for(0) == SHORT_DESCRIPTION_MAX

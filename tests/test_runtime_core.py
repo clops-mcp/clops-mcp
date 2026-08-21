@@ -445,6 +445,137 @@ def test_list_processes_descriptions_take_only_the_first_sentence():
     assert row["description"] == "Parse the diff to identify which files are in scope."
 
 
+def test_list_processes_filters_to_the_names_given():
+    class Alpha(Op):
+        Input = M
+        Output = R
+        Intent = "Do alpha."
+        Meta = "Test fixture Op for validating the process filter."
+        entry = True
+
+    class Beta(Op):
+        Input = M
+        Output = R
+        Intent = "Do beta."
+        Meta = "Test fixture Op for validating the process filter."
+        entry = True
+
+    assert Runtime().list_processes(processes=["Beta"]) == ["Beta"]
+
+
+def test_list_processes_filter_keeps_the_order_asked_for():
+    """It sorts as well as filters — the caller's order is the answer's order,
+    not the registry's."""
+
+    class First(Op):
+        Input = M
+        Output = R
+        Intent = "Do first."
+        Meta = "Test fixture Op for validating filter ordering."
+        entry = True
+
+    class Second(Op):
+        Input = M
+        Output = R
+        Intent = "Do second."
+        Meta = "Test fixture Op for validating filter ordering."
+        entry = True
+
+    assert Runtime().list_processes() == ["First", "Second"]
+    assert Runtime().list_processes(processes=["Second", "First"]) == ["Second", "First"]
+
+
+def test_list_processes_filter_collapses_duplicates():
+    class Once(Op):
+        Input = M
+        Output = R
+        Intent = "Do it once."
+        Meta = "Test fixture Op for validating duplicate collapse."
+        entry = True
+
+    assert Runtime().list_processes(processes=["Once", "Once"]) == ["Once"]
+
+
+def test_list_processes_filter_accepts_a_bare_string():
+    class Solo(Op):
+        Input = M
+        Output = R
+        Intent = "Do it solo."
+        Meta = "Test fixture Op for validating unwrapped-name tolerance."
+        entry = True
+
+    assert Runtime().list_processes(processes="Solo") == ["Solo"]
+
+
+def test_list_processes_filter_rejects_an_unknown_name(library):
+    OpA, OpB, Pipe = library
+    Pipe.entry = True
+    try:
+        with pytest.raises(RuntimeError_, match="not a known process"):
+            Runtime().list_processes(processes=["Pipe", "Nonexistent"])
+    finally:
+        Pipe.entry = False
+
+
+def test_list_processes_filter_says_when_an_op_is_not_an_entry_point(library):
+    """'OpA' resolving to nothing and 'OpA' existing but not being startable
+    are different problems with different fixes; an empty list says neither."""
+    OpA, OpB, Pipe = library
+    Pipe.entry = True
+    try:
+        with pytest.raises(RuntimeError_, match="not an entry point"):
+            Runtime().list_processes(processes=["OpA"])
+    finally:
+        Pipe.entry = False
+
+
+def test_list_processes_filter_reports_every_problem_at_once(library):
+    OpA, OpB, Pipe = library
+    Pipe.entry = True
+    try:
+        with pytest.raises(RuntimeError_) as exc:
+            Runtime().list_processes(processes=["Nope", "OpA"])
+    finally:
+        Pipe.entry = False
+    assert "Nope" in str(exc.value) and "OpA" in str(exc.value)
+
+
+def test_list_processes_filter_empty_list_returns_nothing(library):
+    """An explicit empty filter is a filter, not an omitted one."""
+    OpA, OpB, Pipe = library
+    Pipe.entry = True
+    try:
+        assert Runtime().list_processes(processes=[]) == []
+    finally:
+        Pipe.entry = False
+
+
+def test_a_filtered_listing_buys_back_description_length():
+    """The per-line budget is spent across the rows returned, so narrowing a
+    big catalog restores full-length descriptions for what's left."""
+    from clops.op import MIN_DESCRIPTION, SHORT_DESCRIPTION_MAX
+
+    intent = (
+        "Process the input by doing a great many carefully considered things "
+        "to it before handing back a result that later steps depend upon."
+    )
+    for i in range(60):
+        type(f"Bulk{i:02d}", (Op,), {
+            "Input": M, "Output": R, "Intent": intent,
+            "Meta": "Test fixture Op for validating the description budget.",
+            "entry": True,
+        })
+
+    rt = Runtime()
+    unfiltered = rt.list_processes(descriptions=True)
+    assert len(unfiltered) == 60
+    assert all(len(r["description"]) <= MIN_DESCRIPTION + 1 for r in unfiltered)
+
+    filtered = rt.list_processes(descriptions=True, processes=["Bulk01", "Bulk02"])
+    assert len(filtered[0]["description"]) > MIN_DESCRIPTION
+    assert len(filtered[0]["description"]) <= SHORT_DESCRIPTION_MAX + 1
+
+
 def test_list_processes_descriptions_are_capped():
     from clops.op import SHORT_DESCRIPTION_MAX
 

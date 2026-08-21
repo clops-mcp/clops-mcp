@@ -20,8 +20,8 @@ from datetime import datetime, timezone
 from typing import Any, Optional
 
 from clops.combinators import BranchOn, Gather, Loop, Sequence, walk
-from clops.op import Op, short_description
-from clops.registry import registry
+from clops.op import Op, description_cap_for, short_description
+from clops.registry import AmbiguousOpName, registry
 from clops.runtime.dispatch import build_agent_config
 from clops.runtime.driver import Dispatch, Driver, external, fork
 from clops.runtime.state import (
@@ -49,6 +49,55 @@ def _now() -> datetime:
 
 class RuntimeError_(Exception):
     pass
+
+
+def _select_processes(entries: list[type], names: list[str]) -> list[type]:
+    """Narrow `entries` to `names`, preserving the order the caller asked in.
+
+    Duplicates collapse to their first mention. Names resolve the way every
+    other Op reference does — bare when unambiguous, qualified otherwise —
+    so a filter can be copied straight out of a previous listing.
+
+    Anything that doesn't resolve raises, listing every problem at once
+    rather than one per round trip, and saying *which* kind of miss it was:
+    a name that isn't registered at all and one that is registered but not
+    entry-tagged need different fixes, and both look like an empty result.
+    """
+    if isinstance(names, str):  # A lone name, unwrapped — obvious intent.
+        names = [names]
+
+    entry_set = set(entries)
+    selected: list[type] = []
+    problems: list[str] = []
+    seen: set[str] = set()
+
+    for raw in names:
+        name = str(raw).strip()
+        if not name or name in seen:
+            continue
+        seen.add(name)
+        try:
+            op = registry.op(name)
+        except AmbiguousOpName as exc:
+            # Its message ends in a period; the join below supplies its own.
+            problems.append(str(exc).rstrip("."))
+            continue
+        if op is None:
+            problems.append(f"{name!r} is not a known process")
+        elif op not in entry_set:
+            problems.append(
+                f"{name!r} is an Op but not an entry point — it runs as a step "
+                "inside a process, not as one"
+            )
+        else:
+            selected.append(op)
+
+    if problems:
+        raise RuntimeError_(
+            "list_processes: " + "; ".join(problems) + ". "
+            "Call list_processes with no filter to see what is available."
+        )
+    return selected
 
 
 @dataclass
@@ -156,7 +205,10 @@ class Runtime:
     # ---- Introspection ------------------------------------------------
 
     def list_processes(
-        self, *, descriptions: bool = False
+        self,
+        *,
+        descriptions: bool = False,
+        processes: Optional[list[str]] = None,
     ) -> list[str] | list[dict[str, str]]:
         """Return only Ops explicitly marked as entry points.
 
@@ -170,14 +222,32 @@ class Runtime:
         adds a one-line gist per process (see `op.short_description`) — enough
         to choose between them, still an order of magnitude smaller than the
         Intents themselves, which the subagent gets at dispatch time anyway.
+
+        `processes` narrows the listing to the names given, **in the order
+        given** — so it sorts as well as filters, and a caller that already
+        knows which handful it cares about can ask about those instead of
+        re-reading the catalog. It also buys back description length: the
+        per-line budget is spent across however many rows come back, so five
+        filtered processes get full-length lines out of a library of eighty
+        (`op.description_cap_for`).
+
+        A name that doesn't resolve is an error rather than a silent omission.
+        Dropping it quietly would answer "does this process exist?" with the
+        same empty result as "is it entry-tagged?" and as a typo.
         """
         entries = [
             op for op in registry.ops().values() if getattr(op, "entry", False)
         ]
+        if processes is not None:
+            entries = _select_processes(entries, processes)
         if not descriptions:
             return [registry.ref(op) for op in entries]
+        cap = description_cap_for(len(entries))
         return [
-            {"name": registry.ref(op), "description": short_description(op)}
+            {
+                "name": registry.ref(op),
+                "description": short_description(op, max_chars=cap),
+            }
             for op in entries
         ]
 

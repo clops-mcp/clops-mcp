@@ -375,6 +375,34 @@ def _as_bool(value: Any) -> bool:
     return bool(value)
 
 
+def _as_str_list(value: Any) -> Optional[list[str]]:
+    """Coerce a list-of-names argument, tolerating the shapes a client sends.
+
+    Same reasoning as `_as_bool`: the schema says array-of-string, and a model
+    filling in the call may still hand over one bare name, a JSON string, or a
+    comma-separated one. All three are unambiguous — a process name is an
+    identifier or a slash-separated path, so it contains neither commas nor
+    brackets — and the alternative is an error about a process nobody named.
+    """
+    if value is None:
+        return None
+    if isinstance(value, (list, tuple)):
+        return [str(v) for v in value]
+    if isinstance(value, str):
+        text = value.strip()
+        if text.startswith("["):
+            try:
+                parsed = json.loads(text)
+            except ValueError:
+                parsed = None
+            if isinstance(parsed, list):
+                return [str(v) for v in parsed]
+        if "," in text:
+            return [part.strip() for part in text.split(",") if part.strip()]
+        return [text] if text else []
+    return [str(value)]
+
+
 def _text(payload: Any) -> list[mcp_types.TextContent]:
     # Every tool result funnels through here, which is why the instruction is
     # attached at this point rather than at the five places payloads are built.
@@ -452,7 +480,8 @@ class FlowServer:
             description=(
                 "List available clops processes (Ops declared with entry=True). "
                 "Returns names only; pass descriptions=true for a one-line gist "
-                "of each when the names alone don't say enough."
+                "of each when the names alone don't say enough, and processes=[…] "
+                "to narrow the listing to the ones you care about."
             ),
             inputSchema={
                 "type": "object",
@@ -462,6 +491,16 @@ class FlowServer:
                         "description": (
                             "Include a one-line description per process. "
                             "Default false — names only."
+                        ),
+                    },
+                    "processes": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": (
+                            "Restrict the listing to these process names, kept "
+                            "in the order given. Omit for all of them. "
+                            "Filtering also lengthens the descriptions, which "
+                            "share a budget across the rows returned."
                         ),
                     },
                 },
@@ -673,7 +712,8 @@ class FlowServer:
 
     def _handle_list_processes(self, args: dict) -> Any:
         return self.runtime.list_processes(
-            descriptions=_as_bool(args.get("descriptions", False))
+            descriptions=_as_bool(args.get("descriptions", False)),
+            processes=_as_str_list(args.get("processes")),
         )
 
     def _handle_start_process(self, args: dict) -> Any:

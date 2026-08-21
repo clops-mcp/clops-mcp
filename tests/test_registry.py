@@ -127,3 +127,26 @@ def test_list_processes_only_qualifies_on_collision():
     assert "Solo" in names                                   # unique -> bare
     assert {"lib_a/Greet", "lib_b/Greet"} <= names           # collision -> qualified
     assert "Greet" not in names
+
+
+def test_list_processes_filter_asks_for_a_qualified_path_when_ambiguous():
+    """A bare name that two libraries both define can't be filtered on — the
+    error says so rather than picking one."""
+    from clops.registry import registry
+    from clops.runtime.core import Runtime, RuntimeError_
+
+    def _entry(name: str, module: str) -> type:
+        cls = type(name, (), {"entry": True, "Intent": f"do {name}"})
+        cls.__module__ = module
+        return cls
+
+    for op in (_entry("Greet", "lib_a"), _entry("Greet", "lib_b")):
+        registry.register_op(op)
+
+    rt = Runtime()
+    assert rt.list_processes(processes=["lib_b/Greet"]) == ["lib_b/Greet"]
+
+    with pytest.raises(RuntimeError_) as exc:
+        rt.list_processes(processes=["Greet"])
+    assert "qualified path" in str(exc.value)
+    assert ".." not in str(exc.value)

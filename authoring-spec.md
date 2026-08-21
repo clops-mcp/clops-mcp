@@ -417,6 +417,7 @@ Reads the registry only; no side effects on disk.
 - **Use constants for project-level config.** Company names, thresholds, and contact info belong in `.clops` `[constants]`, not hardcoded in Intent strings.
 - **Mark top-level Ops with `entry=True`** — this is the **procedure tag**. Only entry-tagged Ops appear in `list_processes` and only they can be started by the main thread through `start_process`. Internal / composition-only Ops are invisible to the MCP surface by design. The MCP doesn't expose one tool per Op; the procedure catalog _is_ the extension point.
 - **Open an entry Op's `Intent` with a one-sentence summary.** `list_processes` returns names alone by default; asked for descriptions, it shows the first clause of that first line (up to the first sentence end or the colon that introduces the detail). Lead with what the process does and the catalog reads well for free. Set `Summary` when you want to write that line yourself.
+- **Expect the catalog to get terser as the library grows.** Descriptions share a character budget across the processes returned, so a library with eighty entry Ops shows shorter lines than one with five. `list_processes(processes=[…])` narrows the listing — in the order given — and the smaller count buys full-length descriptions back. Front-load the part that distinguishes the process from its siblings.
 
 ### Don't
 
