@@ -157,19 +157,32 @@ def check_op(op_cls: type[Op], result: LintResult) -> None:
 
     tools = list(getattr(op_cls, "Tools", []))
     for t in tools:
-        if not isinstance(t, Tool):
+        if isinstance(t, Tool):
+            if registry.tool(t.name) is None:
+                result.add(
+                    Severity.ERROR,
+                    name,
+                    "tool_integrity",
+                    f"Tools references Tool {t.name!r} that isn't in the registry.",
+                )
+        elif isinstance(t, type) and issubclass(t, Op):
+            # Op subroutine reference. The metaclass accepts these (op.py) and
+            # the runtime resolves them through `call_op`, rendering the
+            # subroutine's Input/Output contract into the caller's dispatch
+            # prompt. Only the registry membership is worth checking.
+            if registry.op(t.__name__) is None:
+                result.add(
+                    Severity.ERROR,
+                    name,
+                    "tool_op_reference",
+                    f"Tools references Op {t.__name__!r} that isn't registered.",
+                )
+        else:
             result.add(
                 Severity.ERROR,
                 name,
                 "tools_type",
-                f"Tools contains non-Tool item {t!r}.",
-            )
-        elif registry.tool(t.name) is None:
-            result.add(
-                Severity.ERROR,
-                name,
-                "tool_integrity",
-                f"Tools references Tool {t.name!r} that isn't in the registry.",
+                f"Tools contains unsupported item {t!r}. Expected Tool or Op.",
             )
 
     if len(tools) > TOOLS_SOFT_MAX:
