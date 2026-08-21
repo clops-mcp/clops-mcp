@@ -380,7 +380,7 @@ def test_list_processes_only_surfaces_entry_tagged_ops(library):
     Pipe.entry = True
     try:
         rt = Runtime()
-        names = [p["name"] for p in rt.list_processes()]
+        names = rt.list_processes()
         assert names == ["Pipe"]
     finally:
         Pipe.entry = False
@@ -389,6 +389,75 @@ def test_list_processes_only_surfaces_entry_tagged_ops(library):
 def test_list_processes_empty_when_nothing_tagged(library):
     rt = Runtime()
     assert rt.list_processes() == []
+
+
+def test_list_processes_defaults_to_names_only(library):
+    """The catalog is the thing an agent reads on every session start, so the
+    default carries no prose at all — the whole point of the flag below."""
+    OpA, OpB, Pipe = library
+    Pipe.entry = True
+    try:
+        assert Runtime().list_processes() == ["Pipe"]
+    finally:
+        Pipe.entry = False
+
+
+def test_list_processes_with_descriptions_returns_one_liners(library):
+    OpA, OpB, Pipe = library
+    Pipe.entry = True
+    try:
+        assert Runtime().list_processes(descriptions=True) == [
+            {"name": "Pipe", "description": "Chain A then B."}
+        ]
+    finally:
+        Pipe.entry = False
+
+
+def test_list_processes_descriptions_prefer_summary_over_intent():
+    class Verbose(Op):
+        Input = M
+        Output = R
+        Intent = (
+            "Do the first thing. Then do the second thing, and the third, "
+            "keeping notes as you go."
+        )
+        Meta = "Test fixture Op for validating Summary override."
+        Summary = "Does three things."
+        entry = True
+
+    assert Runtime().list_processes(descriptions=True) == [
+        {"name": "Verbose", "description": "Does three things."}
+    ]
+
+
+def test_list_processes_descriptions_take_only_the_first_sentence():
+    class Multi(Op):
+        Input = M
+        Output = R
+        Intent = (
+            "Parse the diff to identify which files are in scope. For each "
+            "file, determine:\n1. The file path\n2. The change type"
+        )
+        Meta = "Test fixture Op for validating Intent derivation."
+        entry = True
+
+    (row,) = Runtime().list_processes(descriptions=True)
+    assert row["description"] == "Parse the diff to identify which files are in scope."
+
+
+def test_list_processes_descriptions_are_capped():
+    from clops.op import SHORT_DESCRIPTION_MAX
+
+    class Rambling(Op):
+        Input = M
+        Output = R
+        Intent = "word " * 200
+        Meta = "Test fixture Op for validating the length cap."
+        entry = True
+
+    (row,) = Runtime().list_processes(descriptions=True)
+    assert len(row["description"]) <= SHORT_DESCRIPTION_MAX + 1  # +1 for the ellipsis
+    assert row["description"].endswith("\u2026")
 
 
 def test_start_enforce_entry_blocks_non_entry_op(library):

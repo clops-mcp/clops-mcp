@@ -20,7 +20,7 @@ from datetime import datetime, timezone
 from typing import Any, Optional
 
 from clops.combinators import BranchOn, Gather, Loop, Sequence, walk
-from clops.op import Op
+from clops.op import Op, short_description
 from clops.registry import registry
 from clops.runtime.dispatch import build_agent_config
 from clops.runtime.driver import Dispatch, Driver, external, fork
@@ -155,17 +155,30 @@ class Runtime:
 
     # ---- Introspection ------------------------------------------------
 
-    def list_processes(self) -> list[dict[str, Any]]:
+    def list_processes(
+        self, *, descriptions: bool = False
+    ) -> list[str] | list[dict[str, str]]:
         """Return only Ops explicitly marked as entry points.
 
         `entry=True` is the procedure tag — Ops the main thread is
         allowed to invoke. Internal / composition-only Ops are not
         surfaced; they exist to be sub-dispatched, not kicked off.
+
+        Names only by default: this answers "what can I run here?", and a
+        library large enough to make that question worth asking is exactly
+        the one whose full Intents would swamp the answer. `descriptions=True`
+        adds a one-line gist per process (see `op.short_description`) — enough
+        to choose between them, still an order of magnitude smaller than the
+        Intents themselves, which the subagent gets at dispatch time anyway.
         """
+        entries = [
+            op for op in registry.ops().values() if getattr(op, "entry", False)
+        ]
+        if not descriptions:
+            return [registry.ref(op) for op in entries]
         return [
-            {"name": registry.ref(op), "intent": (op.Intent or "").strip()}
-            for op in registry.ops().values()
-            if getattr(op, "entry", False)
+            {"name": registry.ref(op), "description": short_description(op)}
+            for op in entries
         ]
 
     def status(self, run_id: str) -> dict[str, Any]:

@@ -208,6 +208,7 @@ That's complete. Runnable as a process. Additive fields below are optional.
 | `Input` | `Concept` subclass | Required. What this Op consumes. |
 | `Output` | `Concept` subclass | Required. What this Op produces. |
 | `Intent` | `str` | Required. Purpose + anti-scope + success criteria. |
+| `Summary` | `str` | Optional one-liner for the `list_processes` catalog. Derived from `Intent` when absent. |
 | `Uses` | `list` of `Snippet` \| `Op` | Pinned references (by ID). |
 | `Requires` | `list` of `SnippetRole` | Role-based soft declarations. |
 | `Tools` | `list` of `Tool` | External capabilities available to this Op. |
@@ -415,6 +416,7 @@ Reads the registry only; no side effects on disk.
 - **Mention stores in Intent.** The agent needs to know stores exist and what they're for. A sentence like "The `tasks` store contains the current backlog; update task status as you complete each one" is enough.
 - **Use constants for project-level config.** Company names, thresholds, and contact info belong in `.clops` `[constants]`, not hardcoded in Intent strings.
 - **Mark top-level Ops with `entry=True`** — this is the **procedure tag**. Only entry-tagged Ops appear in `list_processes` and only they can be started by the main thread through `start_process`. Internal / composition-only Ops are invisible to the MCP surface by design. The MCP doesn't expose one tool per Op; the procedure catalog _is_ the extension point.
+- **Open an entry Op's `Intent` with a one-sentence summary.** `list_processes` returns names alone by default; asked for descriptions, it shows the first clause of that first line (up to the first sentence end or the colon that introduces the detail). Lead with what the process does and the catalog reads well for free. Set `Summary` when you want to write that line yourself.
 
 ### Don't
 

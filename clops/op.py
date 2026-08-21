@@ -7,6 +7,7 @@ The framework never distinguishes leaves from compositions at the call site.
 
 from __future__ import annotations
 
+import re
 import types
 import typing
 from typing import Any, ClassVar
@@ -31,6 +32,69 @@ def _unpack_output(value) -> tuple | None:
     if origin is typing.Union or origin is types.UnionType:
         return typing.get_args(value)
     return None
+
+
+#: Cap on a process's one-line description in `list_processes(descriptions=True)`.
+#: Long enough to say what a process does, short enough that a catalog of fifty
+#: still fits in a glance.
+SHORT_DESCRIPTION_MAX = 160
+
+# A sentence terminator followed by whitespace (or the end of the line). The
+# lookbehind keeps the punctuation in the sentence we return.
+_SENTENCE_END = re.compile(r"(?<=[.!?])(\s|$)")
+
+# A colon or semicolon usually introduces the detail the summary is trying to
+# drop ("...using a three-diamond structure: first discover what processes
+# exist, then...") so it makes a better cut than the sentence end.
+_CLAUSE_BREAK = re.compile(r"[:;]")
+
+# ...but only once enough of a clause precedes it. Cutting at the colon in a
+# label-style Intent ("Goal: review the diff") would leave the word "Goal".
+_MIN_CLAUSE = 40
+
+
+def _truncate(text: str, max_chars: int) -> str:
+    if len(text) <= max_chars:
+        return text
+    cut = text[:max_chars].rstrip()
+    space = cut.rfind(" ")
+    if space > max_chars // 2:  # Don't strip most of the line chasing a word break.
+        cut = cut[:space].rstrip()
+    return cut + "\u2026"
+
+
+def short_description(op_cls: type, *, max_chars: int = SHORT_DESCRIPTION_MAX) -> str:
+    """A one-line gist of an Op, for catalog listings.
+
+    `Intent` is written for the subagent that will execute the Op, so it is
+    long by design — steps, output shape, anti-scope. Rendering fifty of those
+    to answer "what can this project run?" buries the answer. This returns the
+    first clause of the first line instead — up to the first sentence end, or
+    to the colon that introduces the detail, whichever comes first — which for
+    a well-written Intent is exactly the gist.
+
+    An Op that wants control over its one-liner declares `Summary`; it wins
+    over the derived text. Both are capped at `max_chars` — a `Summary` that
+    isn't short doesn't get to un-shorten the listing.
+    """
+    explicit = getattr(op_cls, "Summary", None)
+    if isinstance(explicit, str) and explicit.strip():
+        return _truncate(" ".join(explicit.split()), max_chars)
+
+    intent = getattr(op_cls, "Intent", "")
+    if not isinstance(intent, str) or not intent.strip():
+        return ""
+    line = intent.strip().split("\n", 1)[0].strip()
+
+    cut = len(line)
+    sentence = _SENTENCE_END.search(line)
+    if sentence:
+        cut = sentence.start()
+    clause = _CLAUSE_BREAK.search(line, _MIN_CLAUSE)
+    if clause and clause.start() < cut:
+        cut = clause.start()
+
+    return _truncate(line[:cut].strip(), max_chars)
 
 
 class OpMeta(type):
@@ -152,6 +216,7 @@ class Op(metaclass=OpMeta):
         Meta: why this Op exists, what approach it takes, what was considered
 
     Optional:
+        Summary: one-line gist for `list_processes` (derived from Intent if absent)
         Uses: list of pinned Snippets / Op references
         Requires: list of SnippetRole soft declarations
         Tools: list of Tool instances
@@ -166,6 +231,10 @@ class Op(metaclass=OpMeta):
     Output: ClassVar[type]
     Intent: ClassVar[str] = ""
     Meta: ClassVar[str] = ""
+
+    # Optional one-liner for the process catalog. Absent, `short_description`
+    # derives one from Intent — so this is an override, never a requirement.
+    Summary: ClassVar[str] = ""
 
     Uses: ClassVar[list] = []
     Requires: ClassVar[list] = []

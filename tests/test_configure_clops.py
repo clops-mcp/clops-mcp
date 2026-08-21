@@ -207,7 +207,7 @@ def test_the_fallback_actually_produces_a_runnable_process(tmp_path):
     code = (
         "from clops.runtime.mcp_server import build_server_from_argv as b;"
         "s=b(['--default-library','clops.example_library.session_analyzer']);"
-        "print([p['name'] for p in s.runtime.list_processes()])"
+        "print(s.runtime.list_processes())"
     )
     out = subprocess.run(
         [sys.executable, "-c", code], cwd=tmp_path, capture_output=True, text=True

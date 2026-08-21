@@ -363,6 +363,18 @@ def next_step(payload: dict[str, Any]) -> str | None:
     return None
 
 
+def _as_bool(value: Any) -> bool:
+    """Coerce a flag argument, tolerating the string a client may send.
+
+    The schema says boolean, but an LLM filling in a tool call is perfectly
+    capable of sending "false" — and `bool("false")` is True, which would
+    turn the flag on precisely when it was asked to be off.
+    """
+    if isinstance(value, str):
+        return value.strip().lower() in {"true", "1", "yes"}
+    return bool(value)
+
+
 def _text(payload: Any) -> list[mcp_types.TextContent]:
     # Every tool result funnels through here, which is why the instruction is
     # attached at this point rather than at the five places payloads are built.
@@ -437,8 +449,24 @@ class FlowServer:
         # Main-thread tools
         tools.append(mcp_types.Tool(
             name="list_processes",
-            description="List available clops processes (Ops declared with entry=True).",
-            inputSchema={"type": "object", "properties": {}, "additionalProperties": False},
+            description=(
+                "List available clops processes (Ops declared with entry=True). "
+                "Returns names only; pass descriptions=true for a one-line gist "
+                "of each when the names alone don't say enough."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "descriptions": {
+                        "type": "boolean",
+                        "description": (
+                            "Include a one-line description per process. "
+                            "Default false — names only."
+                        ),
+                    },
+                },
+                "additionalProperties": False,
+            },
         ))
         tools.append(mcp_types.Tool(
             name="start_process",
@@ -643,8 +671,10 @@ class FlowServer:
             using_default_library=self.config.using_default_library,
         )
 
-    def _handle_list_processes(self, _args: dict) -> Any:
-        return self.runtime.list_processes()
+    def _handle_list_processes(self, args: dict) -> Any:
+        return self.runtime.list_processes(
+            descriptions=_as_bool(args.get("descriptions", False))
+        )
 
     def _handle_start_process(self, args: dict) -> Any:
         process = args["process"]

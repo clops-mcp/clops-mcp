@@ -123,7 +123,7 @@ def test_list_processes_only_qualifies_on_collision():
     for op in (_entry("Solo", "lib_a"), _entry("Greet", "lib_a"), _entry("Greet", "lib_b")):
         registry.register_op(op)
 
-    names = {p["name"] for p in Runtime().list_processes()}
+    names = set(Runtime().list_processes())
     assert "Solo" in names                                   # unique -> bare
     assert {"lib_a/Greet", "lib_b/Greet"} <= names           # collision -> qualified
     assert "Greet" not in names

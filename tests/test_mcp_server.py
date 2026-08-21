@@ -81,9 +81,23 @@ def test_tool_catalog_unchanged_when_many_op_tools_are_added():
 
 def test_list_processes_returns_entry_tagged_only(server_with_ops):
     srv, Echo, _ = server_with_ops
-    result = srv._handle_list_processes({})
-    names = [p["name"] for p in result]
-    assert names == ["Echo"]
+    assert srv._handle_list_processes({}) == ["Echo"]
+
+
+def test_list_processes_adds_descriptions_only_when_asked(server_with_ops):
+    srv, Echo, _ = server_with_ops
+    with_desc = srv._handle_list_processes({"descriptions": True})
+    assert [row["name"] for row in with_desc] == ["Echo"]
+    assert with_desc[0]["description"]
+
+
+def test_list_processes_advertises_the_descriptions_flag(server_with_ops):
+    srv, _, _ = server_with_ops
+    tool = next(
+        t for t in srv._build_tool_catalog() if t.name == "list_processes"
+    )
+    assert "descriptions" in tool.inputSchema["properties"]
+    assert tool.inputSchema["properties"]["descriptions"]["type"] == "boolean"
 
 
 def test_start_process_enforces_entry(server_with_ops):
@@ -254,3 +268,11 @@ def test_complete_queues_for_hook_release(server_with_ops):
     # Hook-side release consumes from the queue.
     assert srv.runtime.release_one_completed("parent-1") == exec_id
     assert srv.runtime.release_one_completed("parent-1") is None
+
+
+def test_list_processes_reads_a_stringified_flag(server_with_ops):
+    """`bool("false")` is True; a client that stringifies the flag would get
+    the verbose listing exactly when it asked not to."""
+    srv, _, _ = server_with_ops
+    assert srv._handle_list_processes({"descriptions": "false"}) == ["Echo"]
+    assert srv._handle_list_processes({"descriptions": "true"})[0]["name"] == "Echo"
