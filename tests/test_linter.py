@@ -117,3 +117,69 @@ def test_uses_type_error():
     result = LintResult()
     check_op(Bad, result)
     assert any(f.rule == "uses_type" for f in result.errors)
+
+
+# ---- Op subroutines in Tools -----------------------------------------
+
+
+def test_op_subroutine_in_tools_is_not_an_error():
+    """`Tools` accepts Op classes as subroutine references — the metaclass
+    allows them and the runtime resolves them through call_op. The linter
+    used to flag every one of them as an error."""
+
+    class Helper(Op):
+        Input = M
+        Output = M
+        Intent = "help"
+        Meta = "Test fixture Op used as a subroutine."
+
+    class Caller(Op):
+        Input = M
+        Output = M
+        Intent = "call a subroutine"
+        Meta = "Test fixture Op declaring an Op subroutine in Tools."
+        Tools = [Helper]
+
+    result = LintResult()
+    check_op(Caller, result)
+    assert result.ok, [str(f) for f in result.errors]
+
+
+def test_op_subroutine_in_tools_must_be_registered():
+    class Ghost(Op):
+        Input = M
+        Output = M
+        Intent = "vanish"
+        Meta = "Test fixture Op removed from the registry."
+
+    class Caller2(Op):
+        Input = M
+        Output = M
+        Intent = "call a missing subroutine"
+        Meta = "Test fixture Op declaring an unregistered subroutine."
+        Tools = [Ghost]
+
+    from clops.registry import registry
+
+    for qpath, op_cls in list(registry._ops.items()):
+        if op_cls is Ghost:
+            del registry._ops[qpath]
+            registry._by_bare.get(Ghost.__name__, []).remove(qpath)
+
+    result = LintResult()
+    check_op(Caller2, result)
+    assert any(f.rule == "tool_op_reference" for f in result.errors)
+
+
+def test_tools_type_error_for_neither_tool_nor_op():
+    class Bad2(Op):
+        Input = M
+        Output = M
+        Intent = "x"
+        Meta = "Test fixture Op with a junk Tools entry."
+
+    Bad2.Tools = ["not-a-tool"]
+
+    result = LintResult()
+    check_op(Bad2, result)
+    assert any(f.rule == "tools_type" for f in result.errors)
