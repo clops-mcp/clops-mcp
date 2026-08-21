@@ -117,3 +117,61 @@ def test_uses_type_error():
     result = LintResult()
     check_op(Bad, result)
     assert any(f.rule == "uses_type" for f in result.errors)
+
+
+# ---- output_bulk_only ------------------------------------------------
+
+
+def test_output_bulk_only_warns():
+    """An Output of nothing but bulk puts pure payload on the relay."""
+    from clops import Field
+
+    class BulkOnly(Concept):
+        description = "The characterised flows."
+        flows = Field("the full flow records", bulk=True)
+
+    class Characterise(Op):
+        Input = M
+        Output = BulkOnly
+        Intent = "Characterise the flows."
+        Meta = "Test fixture Op for validating output_bulk_only."
+
+    result = LintResult()
+    check_op(Characterise, result)
+    assert result.ok  # a warning, not an error
+    findings = [f for f in result.warnings if f.rule == "output_bulk_only"]
+    assert len(findings) == 1
+    assert "flows" in findings[0].message
+
+
+def test_output_bulk_with_thin_companion_is_clean():
+    from clops import Field
+
+    class Manifest(Concept):
+        description = "A manifest of the characterised flows."
+        handle = Field("the handle holding the full records")
+        flow_count = Field("how many records are behind the handle")
+        flows = Field("the full flow records", bulk=True)
+
+    class Characterise2(Op):
+        Input = M
+        Output = Manifest
+        Intent = "Characterise the flows."
+        Meta = "Test fixture Op for validating a thin companion field."
+
+    result = LintResult()
+    check_op(Characterise2, result)
+    assert not [f for f in result.warnings if f.rule == "output_bulk_only"]
+
+
+def test_output_without_fields_is_clean():
+    """Fields are optional; a Concept with none must not trip the rule."""
+    class NoFields(Op):
+        Input = M
+        Output = M
+        Intent = "do a thing"
+        Meta = "Test fixture Op for validating fieldless Outputs."
+
+    result = LintResult()
+    check_op(NoFields, result)
+    assert not [f for f in result.warnings if f.rule == "output_bulk_only"]

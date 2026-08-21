@@ -252,13 +252,16 @@ Three things to notice:
 - **`Concept` and `Field` are descriptions, not schemas.** Nothing validates the
   runtime value; it is whatever the producing agent produced. The descriptions
   are rendered into the prompt so the agent knows what it is receiving and what
-  to hand back.
+  to hand back. Because a Field is prose with no type parameter, it is
+  easy to write one that quietly asks for an unbounded collection inline — see
+  [Keeping the relay thin](https://github.com/clops-mcp/clops-mcp/blob/main/authoring-spec.md#keeping-the-relay-thin)
+  before you write an `Output`.
 
 What *is* enforced is the declaration. `OpMeta` raises `TypeError` at
 class-definition time if `Intent`, `Meta`, `Input`, or `Output` is missing or
 the wrong shape — the import fails, not the run. `clops lint` covers the
 cross-artifact checks a metaclass can't see: unresolvable snippet roles,
-unregistered references, oversized Intents.
+unregistered references, oversized Intents, Outputs that carry nothing but bulk.
 
 ### The primitives
 
