@@ -6,6 +6,9 @@ surface, verify state transitions and response shapes without LLM
 involvement.
 """
 
+import json
+import re
+
 import pytest
 
 from clops import Concept, Op, Tool
@@ -86,7 +89,7 @@ def test_list_processes_returns_entry_tagged_only(server_with_ops):
 
 def test_list_processes_adds_descriptions_only_when_asked(server_with_ops):
     srv, Echo, _ = server_with_ops
-    with_desc = srv._handle_list_processes({"descriptions": True})
+    with_desc = srv._handle_list_processes({"descriptions": True, "format": "json"})
     assert [row["name"] for row in with_desc] == ["Echo"]
     assert with_desc[0]["description"]
 
@@ -275,7 +278,8 @@ def test_list_processes_reads_a_stringified_flag(server_with_ops):
     the verbose listing exactly when it asked not to."""
     srv, _, _ = server_with_ops
     assert srv._handle_list_processes({"descriptions": "false"}) == ["Echo"]
-    assert srv._handle_list_processes({"descriptions": "true"})[0]["name"] == "Echo"
+    described = srv._handle_list_processes({"descriptions": "true", "format": "json"})
+    assert described[0]["name"] == "Echo"
 
 
 def test_list_processes_filters_through_the_dispatch_path(server_with_ops):
@@ -306,3 +310,83 @@ def test_list_processes_unknown_name_is_a_structured_error(server_with_ops):
     result = srv._dispatch_tool_call("list_processes", {"processes": ["Nope"]})
     payload = json.loads(result[0].text)
     assert "Nope" in payload["error"]
+
+
+# ---- Listing format --------------------------------------------------
+
+
+def test_described_listing_renders_as_a_markdown_table(server_with_ops):
+    srv, _, _ = server_with_ops
+    out = srv._handle_list_processes({"descriptions": True})
+    lines = out.splitlines()
+    assert lines[0].startswith("| Process ") and lines[0].rstrip().endswith("Description |")
+    assert set(lines[1].replace("|", "").replace(" ", "")) == {"-"}
+    assert "| Echo" in lines[2]
+
+
+def test_a_table_reaches_the_client_as_prose_not_json(server_with_ops):
+    """JSON-encoding the table would turn every newline into a literal \\n and
+    hand back one escaped line — bigger than the table and unreadable."""
+    srv, _, _ = server_with_ops
+    text = srv._dispatch_tool_call("list_processes", {"descriptions": True})[0].text
+    assert text.startswith("| Process")
+    assert "\n" in text and "\\n" not in text
+
+
+def test_tool_handler_strings_keep_their_json_encoding():
+    """The marker class exists so `Markdown` opts out without dragging every
+    string-returning Tool handler with it."""
+    from clops.runtime.mcp_server import _text
+
+    assert _text("plain string")[0].text == '"plain string"'
+
+
+def test_names_only_listing_stays_a_json_array(server_with_ops):
+    """A column of names is the one shape a table doesn't make easier to read,
+    and it's the shape callers hit on every session start."""
+    srv, _, _ = server_with_ops
+    text = srv._dispatch_tool_call("list_processes", {})[0].text
+    assert json.loads(text) == ["Echo"]
+
+
+def test_format_table_forces_a_table_for_names_only(server_with_ops):
+    srv, _, _ = server_with_ops
+    out = srv._handle_list_processes({"format": "table"})
+    assert out.splitlines()[0].startswith("| Process")
+    assert "Description" not in out
+
+
+def test_format_json_forces_structured_rows(server_with_ops):
+    srv, _, _ = server_with_ops
+    out = srv._handle_list_processes({"descriptions": True, "format": "json"})
+    assert isinstance(out, list) and out[0]["name"] == "Echo"
+
+
+def test_an_unrecognised_format_falls_back_to_auto(server_with_ops):
+    """Not worth failing a listing over the spelling of its own output format."""
+    srv, _, _ = server_with_ops
+    assert srv._handle_list_processes({"format": "yaml"}) == ["Echo"]
+
+
+def test_table_escapes_a_pipe_in_a_description():
+    from clops.runtime.mcp_server import render_process_table
+
+    out = render_process_table([{"name": "A", "description": "run `a | b`"}])
+    row = out.splitlines()[2]
+    assert row == r"| A | run `a \| b` |"
+    # Three unescaped pipes: the two outer borders and the column separator.
+    assert len(re.findall(r"(?<!\\)\|", row)) == 3
+
+
+def test_table_flattens_a_multiline_description():
+    from clops.runtime.mcp_server import render_process_table
+
+    out = render_process_table([{"name": "A", "description": "one\ntwo"}])
+    assert "| A | one two |" in out
+    assert len(out.splitlines()) == 3
+
+
+def test_table_of_nothing_says_so():
+    from clops.runtime.mcp_server import render_process_table
+
+    assert render_process_table([]) == "_No processes._"
