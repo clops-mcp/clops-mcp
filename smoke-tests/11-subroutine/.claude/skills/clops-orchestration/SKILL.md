@@ -32,3 +32,20 @@ work yourself.
   reason.
 - Do not spawn agents the payload did not ask for, and do not re-plan the
   workflow. The runtime chooses the steps.
+
+The second failure mode is quieter and costs more: handling the payloads
+instead of relaying them. A dispatch prompt is a whole step's worth of
+instruction, and a run is many of them.
+
+- **Do not restate the prompt.** Paste it into the Agent call and say one line
+  about which step is running. Reading it back to the user copies it a second
+  time for nothing.
+- **Do not pass the output back.** `step_complete(run_id)` takes no second
+  argument — the subagent already reported directly. A `result` is only for a
+  subagent that stopped *without* reporting.
+- **Do not open the files steps write.** Long results live in the run's
+  workspace and travel as paths; the step that needs one reads it. Reading it
+  yourself pulls into the main thread exactly the content the workspace exists
+  to keep out.
+- **Background the subagent if your host can.** The relay needs to know the
+  step finished, not what it said.

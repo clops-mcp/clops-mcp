@@ -182,6 +182,7 @@ Named queries (`queries` dict) are pre-built TinyDB `where` expressions. Custom 
 - Store names must be valid Python identifiers and unique within the Op.
 - Type hints must be one of `str`, `list[X]`, or `dict[str, X]`.
 - Stores are run-scoped: created when the run starts, destroyed when it ends.
+- Keep stored values small. A store is rendered into every prompt that can see it, so a long value is paid for by every later step, not just the one that needed it. For anything long, agents are told to write a file in the run's workspace and store the path — design your Concepts so that reads naturally.
 
 ### `Op`
 
@@ -323,10 +324,11 @@ The framework dispatches a leaf Op by rendering a prompt from:
 3. `Requires` snippets (resolved by role, same treatment)
 4. `Input` Concept description ("What you'll receive")
 5. `Output` Concept description ("What you'll produce")
-6. `Resolve` values (pre-fetched store data, rendered inline)
-7. Store summaries (scalar values inline; collections as count/key summaries)
-8. Exit conditions (`complete(execution_id, output)` / `need(execution_id, reason)`)
-9. The actual input value
+6. The run's workspace, and the rule that long results go in a file there rather than travelling inline (unless `[runtime] workspace = off`)
+7. `Resolve` values (pre-fetched store data, rendered inline)
+8. Store summaries (scalar values inline; collections as count/key summaries)
+9. Exit conditions (`complete(execution_id, output)` / `need(execution_id, reason)`)
+10. The actual input value
 
 You don't write the prompt. You write the source; the framework assembles. This is deliberate: source expresses intent, not prompt text.
 
@@ -424,6 +426,7 @@ Reads the registry only; no side effects on disk.
 - **Don't rely on `branch_on` reading structured output without a key function.** The key is your parser.
 - **Don't add Tools speculatively.** Only add when an Op actually needs external data.
 - **Don't use Stores for ephemeral data that flows naturally between Ops.** If Op A produces output and Op B consumes it in a sequence, that's Input/Output, not a store. Stores are for state that accumulates across multiple steps or that multiple Ops read/write independently.
+- **Don't design an Op around a long value in a store.** Stores are summarised into every prompt that can see them. If a step produces a report, a transcript, or a big list, the agent will write it to a file in the run's workspace and store the path; write your Concept descriptions to expect a path, not the text.
 - **Don't over-resolve.** Resolve is for data the Op needs before it starts reasoning. If the agent might or might not look something up, let it call `mcp__clops__state` interactively.
 
 ---

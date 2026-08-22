@@ -1,0 +1,26 @@
+{
+  "mcpServers": {
+    "clops": {
+      "command": "uv",
+      "args": [
+        "run",
+        "--project", "/Users/wesley/code/clops",
+        "clops-mcp",
+        "--library", "smoke_14_workspace"
+      ]
+    }
+  },
+  "hooks": {
+    "SubagentStop": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "uv run --project /Users/wesley/code/clops clops-hook"
+          }
+        ]
+      }
+    ]
+  }
+}

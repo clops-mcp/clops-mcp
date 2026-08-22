@@ -33,11 +33,14 @@ runtime/hook_server.py for the socket handler.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import importlib
 import pkgutil
 from dataclasses import field
 import json
 import os
+import re
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Optional
@@ -116,8 +119,110 @@ def runtime_state_dir(project_dir: Path) -> Path:
     return project_dir / ".claude" / ".clops"
 
 
+#: `[runtime] workspace` values that turn file hand-off off entirely.
+_WORKSPACE_OFF = frozenset({"off", "false", "no", "none", "0"})
+
+#: `[runtime] workspace` values selecting the project-local tree.
+_WORKSPACE_LOCAL = frozenset({"local", "project"})
+
+#: `[runtime] workspace` values selecting the per-user temp tree.
+_WORKSPACE_TMP = frozenset({"tmp", "temp"})
+
+
+def _looks_like_a_path(value: str) -> bool:
+    """Did the author mean this as a path, or fat-finger a keyword?
+
+    `workspace = tmpp` used to become `<project>/tmpp/` — a stray directory in
+    somebody's repo, from a typo, silently. So a bare word is only ever read as
+    a keyword: a path has to say it is one, by being absolute, starting with
+    `~`, or starting with `./` or `../`.
+    """
+    return (
+        value.startswith(("~", "/", "./", "../"))
+        or Path(value).is_absolute()
+    )
+
+
+def _project_slug(project_dir: Path) -> str:
+    """A temp-dir name that is legible to a human and unique to this project.
+
+    The name alone would collide (every checkout of a repo is `myrepo`) and the
+    hash alone would be unreadable in a path an agent is about to quote back at
+    someone, so it carries both.
+    """
+    resolved = project_dir.expanduser().resolve()
+    digest = hashlib.sha256(str(resolved).encode()).hexdigest()[:8]
+    stem = re.sub(r"[^A-Za-z0-9._-]", "-", resolved.name) or "project"
+    return f"{stem}-{digest}"
+
+
+def workspace_root(project_dir: Path, setting: Optional[str] = None) -> Optional[Path]:
+    """Where per-run scratch directories live, per `[runtime] workspace`.
+
+    One setting covers both halves of the question — whether runs get a
+    workspace at all, and where it goes:
+
+    - unset, or ``tmp`` (the default): a per-user, per-project directory under
+      the system temp dir. Default because most hand-off files are traffic
+      between steps of one run, not project artifacts — they are read once by
+      the next step and never wanted again, and a tree that grows inside the
+      repo for that is a tree somebody has to remember to clear out.
+    - ``local``: ``<project>/.claude/.clops/runs``, the tree ``clops init``
+      already gitignores. Pick this when a run's files are worth keeping: temp
+      directories are cleared on a schedule you do not control, so a path a run
+      reported can stop resolving between sessions.
+    - ``off``: no workspace, and no file hand-off contract in any prompt.
+    - a path: absolute, or starting with ``~``, ``./`` or ``../``. ``~``
+      expands and a relative path hangs off the project directory. Anything
+      else is read as a mistyped keyword and falls back to the default rather
+      than becoming a stray directory in the project.
+
+    Returns None only for ``off``. The directory itself is not created here —
+    each run makes its own on first dispatch.
+    """
+    value = (setting or "").strip()
+    lowered = value.lower()
+    if lowered in _WORKSPACE_OFF:
+        return None
+    if lowered in _WORKSPACE_LOCAL:
+        return runtime_state_dir(project_dir) / "runs"
+    if value and lowered not in _WORKSPACE_TMP and _looks_like_a_path(value):
+        explicit = Path(value).expanduser()
+        if explicit.is_absolute():
+            return explicit
+        # Normalised, not resolved: this path is rendered into agent prompts, and
+        # `<project>/../shared` reads badly, but following symlinks could land
+        # somewhere the author did not name.
+        return Path(os.path.normpath(project_dir / explicit))
+    # Default, and the landing place for a keyword nobody recognises. uid-scoped
+    # so a shared machine keeps users out of each other's runs; the per-user
+    # root is created 0o700 when the first run lands in it.
+    return (
+        Path(tempfile.gettempdir())
+        / f"clops-{os.getuid()}"
+        / _project_slug(project_dir)
+    )
+
+
 def hook_socket_path(project_dir: Path) -> Path:
     return runtime_state_dir(project_dir) / f"hook-{os.getpid()}.sock"
+
+
+def clean_empty_workspaces(root: Optional[Path]) -> None:
+    """Drop empty run workspaces left by runs that never reached a terminal state.
+
+    A run that ends normally releases its own empty workspace; one that is
+    abandoned — client killed, server restarted mid-relay — cannot. Only empty
+    directories go: anything a run actually wrote is its result, and the path it
+    reported has to keep resolving.
+    """
+    if root is None or not root.is_dir():
+        return
+    for run_dir in root.iterdir():
+        try:
+            run_dir.rmdir()
+        except OSError:
+            continue
 
 
 def clean_stale_hook_sockets(project_dir: Path) -> None:
@@ -299,6 +404,11 @@ def configure_guidance(
     }
 
 
+#: State operations that put a caller-supplied value into a store, and so can
+#: put a very large one there.
+STATE_WRITE_OPERATIONS = frozenset({"set", "add", "append"})
+
+
 def next_step(payload: dict[str, Any]) -> str | None:
     """What the caller must do with this payload, in plain language.
 
@@ -324,12 +434,18 @@ def next_step(payload: dict[str, Any]) -> str | None:
         return (
             f"Spawn ONE subagent with the Agent tool: subagent_type='{template}', "
             "with `description` and `prompt` copied verbatim from `agent_config` — "
-            "do not summarise, reword, or add to the prompt. When it finishes, call "
-            f"{report}(run_id) with no second argument: the subagent already "
-            "reported its output directly, and passing it again just copies the "
-            "whole thing through your context to be discarded. Only if the "
-            "subagent stopped WITHOUT reporting, pass its final text as a "
-            f"fallback: {report}(run_id, <final text>). Do not do the work yourself."
+            "do not summarise, reword, or add to the prompt, and do not restate "
+            "the step in your own reply — it is in your context once already, and "
+            "a paraphrase is a second copy that buys nothing. One line naming the "
+            "step is plenty. If your host can run subagents in the background, "
+            "this is a good candidate: the relay needs to know the step finished, "
+            f"not what it said. When it finishes, call {report}(run_id) with no "
+            "second argument — the subagent already reported its output directly, "
+            "and passing it again just copies the whole thing through your context "
+            "to be discarded. Only if the subagent stopped WITHOUT reporting, pass "
+            f"its final text as a fallback: {report}(run_id, <final text>). Leave "
+            "any file a step wrote closed; the step that needs it will open it. Do "
+            "not do the work yourself."
         )
     if action == "dispatch_parallel":
         template = payload.get("agent_template", "clops-executor")
@@ -337,12 +453,16 @@ def next_step(payload: dict[str, Any]) -> str | None:
         return (
             f"Spawn one subagent per entry in `agent_configs` — subagent_type='{template}', "
             "each with its `description` and `prompt` verbatim — and issue them in a single "
-            "message so they run concurrently. When all have finished, call "
+            "message so they run concurrently. Copy the prompts into the Agent "
+            "calls without reading them back or restating them; they are already "
+            "in your context once. When all have finished, call "
             f"{report}(run_id, {{execution_id: final text}}) — every one of "
             "`execution_ids` must be a key, and the run does not advance until "
             "all of them have finished. The text is only a fallback for a "
             "subagent that stopped without reporting; an empty string is fine "
-            "for the rest. Do not do the work yourself."
+            "for the rest — the reporting ones already sent their output, so "
+            "echoing it back only copies it through your context to be "
+            "discarded. Do not do the work yourself."
         )
     if action == "needs_resolution":
         return (
@@ -354,7 +474,15 @@ def next_step(payload: dict[str, Any]) -> str | None:
             "a second need after resolution fails the run."
         )
     if action == "done":
-        return "The run is finished. `output` is the result — report it to the user. No further calls."
+        line = "The run is finished. `output` is the result — report it to the user."
+        if payload.get("workspace"):
+            line += (
+                " The run also left files in `workspace` — name that path when you "
+                "report, because nothing else will point the user at them. Do not "
+                "read the files in to summarise them; the output already says what "
+                "they are."
+            )
+        return line + " No further calls."
     if action == "failed":
         return (
             "The run failed; `error` says why. Report it. Do not silently retry — a rerun "
@@ -388,6 +516,7 @@ class FlowServer:
         self.project_dir = resolve_project_dir(config.project_dir)
         self.state_dir = runtime_state_dir(self.project_dir)
         self.hook_socket = config.hook_socket_path or hook_socket_path(self.project_dir)
+        self.runtime.set_workspace_root(workspace_root(self.project_dir))
         self._library_import_error: Optional[str] = None
         self._constants: dict[str, str] = {}  # From .clops [constants]
         self.server: Server = Server("clops")
@@ -747,7 +876,17 @@ class FlowServer:
         for key in ("id", "index", "value"):
             if key in args:
                 kwargs[key] = args[key]
-        return {"result": self.runtime.state(execution_id, store, operation, **kwargs)}
+        payload: dict[str, Any] = {
+            "result": self.runtime.state(execution_id, store, operation, **kwargs)
+        }
+        # A store is the worst place for a long value: it is read back by every
+        # later step, not just the next one. The write stands — the agent is
+        # told, on the response it is already reading, to use a file next time.
+        if operation in STATE_WRITE_OPERATIONS and "value" in kwargs:
+            note = self.runtime.large_value_note(execution_id, kwargs["value"])
+            if note:
+                payload["note"] = note
+        return payload
 
 
 async def _run_stdio(server: FlowServer) -> None:
@@ -844,6 +983,11 @@ def build_server_from_argv(argv: list[str]) -> FlowServer:
     srv._constants = clops_config.constants
     srv.runtime._project_constants = clops_config.constants
     srv.runtime._settings = clops_config.settings
+    # Re-resolved now that `[runtime]` is known — FlowServer's constructor could
+    # only apply the default.
+    srv.runtime.set_workspace_root(
+        workspace_root(srv.project_dir, clops_config.settings.get("workspace"))
+    )
     # A configured [system_prompt] overrides the built-in default; leaving the
     # section out keeps DEFAULT_SYSTEM_PROMPT (set on the Runtime).
     if clops_config.system_prompt is not None:
@@ -858,6 +1002,7 @@ def main(argv: Optional[list[str]] = None) -> int:
     srv = build_server_from_argv(sys.argv[1:] if argv is None else argv)
     srv.state_dir.mkdir(parents=True, exist_ok=True)
     clean_stale_hook_sockets(srv.project_dir)
+    clean_empty_workspaces(srv.runtime.workspace_root)
 
     from clops.runtime.hook_server import HookServer
 

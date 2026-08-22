@@ -284,27 +284,38 @@ def test_default_mode_is_unchanged(tmp_path):
 # ---- the shipped skill, and its copies -------------------------------
 
 
-def test_smoke_test_fixtures_carry_the_shipped_skill():
-    """Eleven smoke-test projects each hold a copy of the orchestration skill,
-    because each is a self-contained project that `clops init` set up.
+@pytest.mark.parametrize(
+    "source_name,pattern",
+    [
+        ("SKILL_SRC", "smoke-tests/*/.claude/skills/clops-orchestration/SKILL.md"),
+        ("CLOPS_EXECUTOR_SRC", "smoke-tests/*/.claude/agents/clops-executor.md"),
+    ],
+)
+def test_smoke_test_fixtures_carry_the_shipped_copies(source_name, pattern):
+    """Eleven smoke-test projects each hold a copy of the orchestration skill and
+    the executor agent, because each is a self-contained project that
+    `clops init` set up.
 
     Eleven copies of one file is a drift factory, and a stale copy is worse
     than no copy: the scenario then exercises instructions that do not ship,
     and passes or fails for the wrong reason. Found exactly that after slimming
-    the skill — all eleven still held the old 50-line version.
+    the skill — all eleven still held the old 50-line version. The agent copies
+    had drifted the same way and for the same reason, only nothing was checking
+    them, so this covers both files rather than the one that happened to break.
     """
-    from clops.cli.init import SKILL_SRC
+    from clops.cli import init as init_module
 
+    source = getattr(init_module, source_name)
     root = Path(__file__).resolve().parent.parent
-    fixtures = sorted(
-        root.glob("smoke-tests/*/.claude/skills/clops-orchestration/SKILL.md")
-    )
+    fixtures = sorted(root.glob(pattern))
     if not fixtures:  # pragma: no cover - sdist prunes smoke-tests
         pytest.skip("smoke-tests not present")
 
-    canonical = SKILL_SRC.read_text()
+    canonical = source.read_text()
     stale = [str(f.relative_to(root)) for f in fixtures if f.read_text() != canonical]
-    assert not stale, "these copies have drifted from the shipped skill: " + ", ".join(stale)
+    assert not stale, (
+        f"these copies have drifted from {source.name}: " + ", ".join(stale)
+    )
 
 
 def test_adding_a_second_library_keeps_the_first(tmp_path):

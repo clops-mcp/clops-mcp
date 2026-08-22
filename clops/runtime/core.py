@@ -13,16 +13,18 @@ Phase 1a scope:
 
 from __future__ import annotations
 
+import json
 import uuid
 from collections import deque
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Optional
 
 from clops.combinators import BranchOn, Gather, Loop, Sequence, walk
 from clops.op import Op
 from clops.registry import registry
-from clops.runtime.dispatch import build_agent_config
+from clops.runtime.dispatch import INLINE_BUDGET_CHARS, build_agent_config
 from clops.runtime.driver import Dispatch, Driver, external, fork
 from clops.runtime.state import (
     ExecutionStatus,
@@ -45,6 +47,36 @@ DEFAULT_SYSTEM_PROMPT = (
 
 def _now() -> datetime:
     return datetime.now(timezone.utc)
+
+
+def _mkdir_private(path: Path) -> None:
+    """Create `path` and any missing ancestors, owner-only.
+
+    Matters for the default temp root, which lives in a directory other users
+    can also write to: a run's hand-off files are whatever the workflow handles,
+    and on a shared machine that should not be world-readable. Ancestors that
+    already exist keep the permissions they have — if something else created the
+    temp root first, point `[runtime] workspace` at a path you control instead.
+    """
+    missing: list[Path] = []
+    cursor = path
+    while not cursor.exists():
+        missing.append(cursor)
+        if cursor.parent == cursor:
+            break
+        cursor = cursor.parent
+    for directory in reversed(missing):
+        directory.mkdir(mode=0o700, exist_ok=True)
+
+
+def _value_chars(value: Any) -> int:
+    """Serialized size of a value, for deciding whether it should have been a file."""
+    if isinstance(value, str):
+        return len(value)
+    try:
+        return len(json.dumps(value, default=str))
+    except (TypeError, ValueError):
+        return len(repr(value))
 
 
 class RuntimeError_(Exception):
@@ -145,12 +177,106 @@ class Runtime:
         # a project's .clops [system_prompt] section overrides it at boot.
         # Set to None to suppress the field entirely.
         self._system_prompt: Optional[str] = DEFAULT_SYSTEM_PROMPT
+        # Root under which each run gets a scratch directory for file
+        # hand-offs (`<root>/<run_id>`). Set by the MCP server at boot, which
+        # is the only layer that knows the project directory. Left None by
+        # bare Runtime use (tests, internal tooling); with no root there is
+        # nowhere to point an agent, so the contract is simply not rendered.
+        self._workspace_root: Optional[Path] = None
 
     @property
     def _manifest_mode(self) -> bool:
         return (
             self._settings.get("output_contract", "full").strip().lower()
             == "manifest"
+        )
+
+    @property
+    def workspace_root(self) -> Optional[Path]:
+        """Where this project's run workspaces live, or None when turned off.
+
+        Resolved once at boot from `[runtime] workspace`. Global rather than
+        per-Op on purpose: the cost the file hand-off contract addresses is a
+        property of the run, not of any one step, and a knob per Op would put
+        the decision on the author of the step that produces the value rather
+        than on whoever pays to read it.
+        """
+        return self._workspace_root
+
+    def set_workspace_root(self, root: Optional[Path]) -> None:
+        """Point run workspaces at `root`. Called by the server at boot."""
+        self._workspace_root = Path(root) if root is not None else None
+
+    def workspace_for(self, run_id: str) -> Optional[str]:
+        """This run's scratch directory, created on demand.
+
+        Returns None — and so renders no contract — when there is no root
+        (`workspace = off`) or the directory cannot be created. A run that
+        cannot get a workspace still runs; it just hands off inline.
+        """
+        if self._workspace_root is None:
+            return None
+        path = self._workspace_root / run_id
+        try:
+            _mkdir_private(path)
+        except OSError:
+            return None
+        return str(path)
+
+    def release_workspace(self, run_id: str) -> None:
+        """Drop a finished run's workspace if it is still empty.
+
+        A workspace is created for every run, whether or not anything writes to
+        it, so without this the scratch tree fills with empty directories. One
+        that *does* hold files is left alone: those are the run's results, and
+        the path the run reported has to keep resolving after it ends.
+        """
+        if self._workspace_root is None:
+            return
+        try:
+            (self._workspace_root / run_id).rmdir()
+        except OSError:
+            # Non-empty (the normal case for a run that wrote something),
+            # already gone, or not ours to remove. Nothing to do either way.
+            pass
+
+    def kept_workspace(self, run_id: str) -> Optional[str]:
+        """The run's workspace if it survived release — meaning it holds files.
+
+        Surfaced on the terminal payload so the orchestrator can point the user
+        at what the run left behind. Nothing else will: the default workspace is
+        a temp directory nobody would think to look in.
+        """
+        if self._workspace_root is None:
+            return None
+        path = self._workspace_root / run_id
+        return str(path) if path.is_dir() else None
+
+    def large_value_note(self, execution_id: str, value: Any) -> Optional[str]:
+        """A nudge to attach to an oversized state write, or None.
+
+        The write itself is allowed through — refusing it would strand an agent
+        mid-step over a policy it can still satisfy on its next write. The note
+        is corrective rather than preventative; the leaf prompt is where the
+        rule is stated up front.
+        """
+        if self._workspace_root is None:
+            return None
+        size = _value_chars(value)
+        if size <= INLINE_BUDGET_CHARS:
+            return None
+        try:
+            _, execution = self._locate_execution(execution_id)
+        except RuntimeError_:
+            return None
+        workspace = self.workspace_for(execution.run_id)
+        where = f"`{workspace}`" if workspace else "a file"
+        return (
+            f"Stored, but that value is {size:,} characters. Content this long "
+            f"belongs in a file: write it under {where} and store the path "
+            "instead. Every later step that reads this store pays for the whole "
+            "value, whether it needs it or not — so do it that way for the rest "
+            "of this run."
         )
 
     # ---- Introspection ------------------------------------------------
@@ -392,6 +518,7 @@ class Runtime:
             ):
                 execution.status = ExecutionStatus.FAILED
                 execution.error = "Run aborted"
+        self.release_workspace(run.id)
         return {"run_id": run.id, "status": run.status.value}
 
     def resolve_need(
@@ -660,6 +787,7 @@ class Runtime:
         run.completed_at = _now()
         run.pending_executions.clear()
         run.slot_for.clear()
+        self.release_workspace(run.id)
         return {"run_id": run.id, "action": "failed", "error": run.error}
 
     def _resolve_branch(self, branch: BranchOn, upstream_output: Any) -> type[Op]:
@@ -871,7 +999,16 @@ class Runtime:
             run.output = payload
             run.status = RunStatus.COMPLETED
             run.completed_at = _now()
-            return {"run_id": run.id, "action": "done", "output": run.output}
+            self.release_workspace(run.id)
+            done: dict[str, Any] = {
+                "run_id": run.id,
+                "action": "done",
+                "output": run.output,
+            }
+            kept = self.kept_workspace(run.id)
+            if kept:
+                done["workspace"] = kept
+            return done
         return self._materialize_frontier(run, payload)
 
     def _materialize_frontier(self, run: Run, batch: list) -> dict[str, Any]:
@@ -931,6 +1068,7 @@ class Runtime:
                 state_manager=self._state_managers.get(run.id),
                 manifest_mode=self._manifest_mode,
                 require_full_output=dispatch.require_full_output,
+                workspace=self.workspace_for(run.id),
             )
             agent_configs.append(
                 {k: v for k, v in config.items() if not k.startswith("_")}

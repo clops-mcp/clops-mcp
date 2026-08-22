@@ -341,6 +341,9 @@ team_ops @ git+https://github.com/company/team-ops
 user_id = wes-dev-123
 database = staging
 
+[runtime]
+workspace = tmp
+
 [system_prompt]
 Prefer the strongest agent for design and review steps; use lighter
 agents for mechanical edits.
@@ -350,6 +353,71 @@ Constants are registered as read-only stores on every run and appear in every
 Op's prompt. `[system_prompt]` is standing direction for the *orchestrator* —
 guidance on how to size the agent it dispatches to a given step — not for the
 leaf agents. Omit it and a small built-in default applies.
+
+`[runtime]` holds settings the runtime reads at boot. `workspace` is the one
+most worth knowing about; see below.
+
+## The run workspace
+
+Every run gets a scratch directory, and every leaf prompt names it alongside a
+standing rule: **anything long goes in a file there, and the agent hands back a
+summary plus the path.**
+
+This is on by default because the alternative is the default failure mode of a
+multi-step run. A long result serialized through `complete` travels inline. A
+long result parked in a `Store` is worse: every later step that reads that store
+pays for the whole value, not just the step that needed it. Both are paid in
+tokens, on every step, for the rest of the run.
+
+So the runtime pushes long values out of the message path and lets paths travel
+instead:
+
+- Leaf prompts carry the rule and the directory. Short results still go inline —
+  a file for three lines costs more than it saves.
+- A `state` write past ~2000 characters comes back with a note saying to write a
+  file and store the path instead. The write still succeeds; the nudge is for
+  the next one.
+- The orchestrator is told not to open the files steps write. The step that
+  needs one reads it; the main thread reading it defeats the point.
+- When a run finishes having left files behind, the terminal payload carries the
+  path so the orchestrator can tell you where they are.
+
+Empty workspaces are cleaned up — released when the run reaches a terminal
+state, and collected at the next server start for runs abandoned mid-relay. One
+holding files is left alone: those are the run's results, and the paths it
+reported have to keep resolving.
+
+### Where it goes
+
+One setting in `[runtime]` covers both halves of the question — whether runs get
+a workspace at all, and where it goes:
+
+| `workspace = ` | Where | |
+|---|---|---|
+| `tmp` | `<system temp>/clops-<uid>/<project>-<hash>/<run_id>` | **default** (`temp` too) |
+| `local` | `<project>/.claude/.clops/runs/<run_id>` | the tree `clops init` already gitignores (`project` too) |
+| `off` | nowhere | no workspace, no prompt section, no nudge |
+| a path | `<that path>/<run_id>` | `/var/clops`, `~/runs`, `./runs` |
+
+A path has to look like one — absolute, or starting with `~`, `./` or `../`.
+A bare word is read as a keyword, so a typo (`workspace = tmpp`) falls back to
+the default instead of quietly creating `tmpp/` in your project.
+
+Temp is the default because most hand-off files are traffic between steps of one
+run — read once by the next step, never wanted again — and a tree that grows
+inside the repo for that is a tree somebody has to remember to clear out.
+
+**Choose `local` when a run's files are worth keeping.** Temp directories are
+cleared on a schedule you do not control, so a path a run reported can stop
+resolving between sessions. If a workflow produces documents you will come back
+to, put them somewhere you own — `local`, or an explicit path.
+
+Workspace directories are created `0o700`, so the default is not readable by
+other users on a shared machine. Directories that already exist keep whatever
+permissions they have; if something else created the temp root first, point
+`workspace` at a path you control instead.
+
+There is no per-Op override yet — the setting is per project.
 
 ## What the plugin contains
 
