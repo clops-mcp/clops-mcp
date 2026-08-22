@@ -2,7 +2,7 @@
 
 _For use by Claude Code (and humans) when authoring clops Op libraries. This is the syntax-and-spec surface. Not a tutorial; it's the reference the authoring agent reads while writing code._
 
-_Companion to: agent-framework-design-direction.md (for "why"), concrete-op-walkthrough.md (for a worked example)._
+_Companion to: `README.md` (for the "why" and a quick start), and the reference library in `examples/my_company/` (for a worked example)._
 
 ---
 
@@ -20,12 +20,27 @@ Quickest way to get from zero to a working library:
 
 ```bash
 clops new-library my_company.support_ops
-pip install -e ./my_company
+pip install -e my_company
 ```
 
-Scaffolds the package layout shown below with one demo Echo Op (delete or replace it) and a `pyproject.toml`. Pass `--target DIR` to scaffold somewhere other than cwd, or `--force` to overwrite an existing root directory.
+That writes a flat starter package with one demo `Echo` Op (delete or replace it) and a `pyproject.toml`:
+
+```
+my_company/                          # project root — this is what you pip install
+├── README.md
+├── pyproject.toml
+└── my_company/
+    └── support_ops/
+        ├── __init__.py              # imports the submodules so the registry populates
+        ├── concepts.py              # one Concept: Greeting
+        └── ops.py                   # one entry Op: Echo
+```
+
+Pass `--target DIR` to scaffold somewhere other than cwd, or `--force` to overwrite an existing root directory. Then `clops init --library my_company.support_ops` in a Claude Code project wires it into the MCP config.
 
 ## Package layout
+
+The scaffold is deliberately flat. As a library grows, the convention that scales — and the one the reference library in `examples/my_company/` follows — splits by primitive:
 
 ```
 my_company_ops/
@@ -40,7 +55,7 @@ my_company_ops/
     └── handle_support.py
 ```
 
-Any layout works as long as every Op gets imported (imports trigger registration via the metaclass). The convention above mirrors the reference library in `examples/my_company/`.
+Any layout works as long as every Op gets imported — imports are what trigger registration, via the metaclass. An Op in a module nobody imports does not exist as far as the runtime is concerned.
 
 ---
 
@@ -158,7 +173,7 @@ brand_voice = Snippet(
 
 ### `Tool`
 
-An external capability the Op can invoke during reasoning. At Phase 1a, Tools are metadata holders; they become real MCP tool calls in Phase 1b.
+A Python callable the Op's subagent can invoke mid-reasoning. Tools execute for real: the agent calls `mcp__clops__call_tool`, the runtime looks the Tool up in the registry and runs its `handler`.
 
 ```python
 from clops import Tool
@@ -240,7 +255,8 @@ Named queries (`queries` dict) are pre-built TinyDB `where` expressions. Custom 
 **Rules:**
 - Stores are declared only on composition Ops (Ops with a `body`). Leaf Ops access stores inherited from their parent composition.
 - Store names must be valid Python identifiers and unique within the Op.
-- Type hints must be one of `str`, `list[X]`, or `dict[str, X]`.
+- Type hints must be one of `str`, `list[X]`, or `dict[str, X]`. The type hint selects which operations the agent gets; it is not validated against what the agent writes.
+- `Store(list[Finding], description="...")` takes an optional description, rendered with the store's summary so the agent knows what the store is for.
 - Stores are run-scoped: created when the run starts, destroyed when it ends.
 
 ### `Op`
@@ -257,42 +273,72 @@ class ClassifyIntent(Op):
     Input = UserMessage
     Output = Intent
     Intent = "Classify a customer support message as billing, technical, or general."
+    Meta = "First stage of support triage; splits the work before drafting."
 ```
 
-That's complete. Runnable as a process. Additive fields below are optional.
+That's complete. Runnable as a process. All four of those are required — `Meta` included; leaving it off is a `TypeError` at import, not a lint warning. Additive fields below are optional.
+
+`Intent` is the prompt: purpose, anti-scope, success criteria, addressed to whoever is doing the work. `Meta` is *why the Op exists* — the design note for whoever inherits the library, including the next agent. They are different audiences; don't paste one into the other.
 
 **All Op fields:**
 
 | Field | Type | Purpose |
 |---|---|---|
-| `Input` | `Concept` subclass | Required. What this Op consumes. |
-| `Output` | `Concept` subclass | Required. What this Op produces. |
-| `Intent` | `str` | Required. Purpose + anti-scope + success criteria. |
+| `Input` | `Concept` subclass | **Required.** What this Op consumes. |
+| `Output` | `Concept` subclass | **Required.** What this Op produces. Exactly one Concept. |
+| `Intent` | `str` | **Required.** Purpose + anti-scope + success criteria. Rendered into the prompt. |
+| `Meta` | `str` | **Required.** Why this Op exists, the approach, what was considered. Not rendered into the prompt. |
 | `Uses` | `list` of `Snippet` \| `Op` | Pinned references (by ID). |
 | `Requires` | `list` of `SnippetRole` | Role-based soft declarations. |
-| `Tools` | `list` of `Tool` | External capabilities available to this Op. |
+| `Tools` | `list` of `Tool` \| `Op` | External capabilities. An `Op` entry is a subroutine the agent can call mid-step. |
 | _`name`_ `= Store(T)` | `Store` attribute | Run-scoped state. Composition Ops only. |
 | `Resolve` | `dict[str, resolver spec]` | Pre-computed queries evaluated before dispatch. |
-| `Examples` | iterable | Few-shot demonstrations. |
-| `Model` | `str` \| `None` | Optional model override. |
+| `Model` | `str` \| `None` | Optional model override for this Op's dispatch. |
 | `body` | combinator tree | Absent on leaves; present on compositions. |
-| `entry` | `bool` | Marks an Op as a top-level entry point. |
-| `exit` | `bool` | Marks an Op as a final exit point. |
-| `before_run` / `after_run` | callables | Rails-style callbacks. |
+| `entry` | `bool` | Marks an Op as a top-level entry point — the **procedure tag**. |
+
+**Declared but not currently consumed.** These attributes exist on `Op` and accept values without complaint, but nothing in the runtime reads them today. Setting one has no effect — don't reach for them expecting behaviour:
+
+| Field | Status |
+|---|---|
+| `Examples` | Declared as a class var. Not rendered into the prompt. |
+| `exit` | Declared as a class var. Nothing reads it; only `entry` affects dispatch. |
+| `before_run` / `after_run` | Mentioned in `Op`'s docstring only. No callback hook exists. |
 
 **Rules enforced at class definition (metaclass, hard errors):**
-- `Input` and `Output` must be Concept subclasses.
+- `Input` must be a Concept subclass; `Output` must be exactly one Concept subclass.
 - `Intent` must be a non-empty string.
+- `Meta` must be a non-empty string.
+- Every `Tools` entry must be a `Tool` instance or an `Op` subclass.
+- `Team`, `persistence`, and `Init` are rejected outright — they belonged to the removed persistent-subagent feature. Delete the attribute.
 
-**Rules enforced by the linter (soft warnings):**
-- `Intent` around 1000–2000 characters.
-- `Uses + Requires` around 10 total entries.
-- `Tools` around 10 entries.
-- `body` around 10–15 Op references.
-- `Snippet.content` around 500–1000 characters.
-- `Output` declares nothing but `bulk=True` Fields (`output_bulk_only`) — the relay would carry pure payload.
+**Rules enforced by the linter — soft (warnings, never block):**
 
-Warnings don't block. They exist to make you feel the friction when an Op is getting too big — at which point split it or keep going with intent.
+| Rule | Fires when |
+|---|---|
+| `intent_size` | `Intent` is over 2000 characters. |
+| `uses_requires_count` | `Uses` + `Requires` is over 10 entries combined. |
+| `tools_count` | `Tools` is over 10 entries. |
+| `body_size` | `body` references more than 15 Ops. |
+| `snippet_size` | A `Snippet`'s content is over 1000 characters. |
+| `requires_resolution` | No registered Snippet carries a role in `Requires`. Dispatch will fail until one is. |
+| `output_bulk_only` | `Output` declares nothing but `bulk=True` Fields — the relay would carry pure payload. |
+
+The size limits exist to make you feel the friction when an Op is getting too big. At that point, split it or keep going with intent.
+
+**Rules enforced by the linter — hard (errors, exit non-zero):**
+
+| Rule | Fires when |
+|---|---|
+| `snippet_integrity` | `Uses` references a Snippet that isn't registered, or whose content has drifted from the registered copy. |
+| `op_reference` | `Uses` references an Op that isn't registered. |
+| `uses_type` | `Uses` holds something that is neither a Snippet nor an Op. |
+| `requires_type` | `Requires` holds something that isn't a `SnippetRole`. |
+| `tools_type` | `Tools` holds something that is neither a `Tool` nor an `Op` subclass. |
+| `tool_integrity` | `Tools` references a Tool or Op subroutine that isn't registered. |
+| `body_integrity` | `body` references an Op that isn't registered. |
+
+These are cross-artifact checks — the things a metaclass can't see at class-definition time, because the rest of the library hasn't been imported yet.
 
 ### Composition combinators
 
@@ -334,6 +380,7 @@ class ExecuteWork(Op):
     Input = TaskAssignment
     Output = TaskResult
     Intent = "Execute one task from the backlog."
+    Meta = "Leaf worker; Resolve hands it the record so it doesn't have to fetch."
     Resolve = {
         "current_task": {"store": "tasks", "op": "get", "bind": {"id": "input.task_id"}},
     }
@@ -373,9 +420,11 @@ Run `clops init --library "work_ops @ ~/work/work-ops"` to add an entry and rege
 
 **Constants** are registered as read-only scalar stores, accessible via `mcp__clops__state` like any other store but not writable. They are available to all Ops in every run — useful for configuration values that agents need during reasoning without hardcoding them in Intent strings or Snippets.
 
+**`[system_prompt]`** is free-form prose surfaced to the orchestrator at the top of every run — standing direction for how the main execution flow manages the run's dispatches (how to size the agent it sends to a task, for instance). Its body is captured verbatim until the next `[section]` header: blank lines and `#` markdown headings are content there, not comments.
+
 **Runtime settings** live under `[runtime]`. `output_contract` governs what a leaf writes back through `complete()`: `full` (the default) serialises the whole Output; `manifest` has the agent hold its Output and reply with a one-line manifest instead. See [Keeping the relay thin](#keeping-the-relay-thin).
 
-**Phase 2 status:** `sequence`, `branch_on`, `loop`, and `gather` execute. `need()` routes to main thread as of slice 04. See `phase-2-spec.md` for live status. `gather` requires the main thread to issue N parallel Agent calls — the clops-orchestration skill teaches this automatically.
+**On `gather`:** a gather comes back as one `dispatch_parallel` payload carrying an `agent_configs` list rather than a single `agent_config`, and the main thread reports the round with `step_complete_parallel(run_id, {execution_id: ...})` once every branch has finished. Whether the branches actually run concurrently is the main thread's doing — it has to issue them in a single message. The payload's own `next_step` field says so, so this does not depend on the orchestration skill being installed.
 
 **Rules for `branch_on` keys:** the key function receives the upstream Op's output (prose, dict, or whatever the agent produced). Write a lightweight parser — string match, regex, lookup on a known-structured field. Don't assume schema. If parsing is painful, insert a dedicated extraction Op upstream.
 
@@ -448,16 +497,23 @@ So:
 
 ## How an Op's prompt gets assembled
 
-The framework dispatches a leaf Op by rendering a prompt from:
-1. `Intent` (your docstring — the "what and why")
-2. `Uses` snippets (rendered as policy sections)
-3. `Requires` snippets (resolved by role, same treatment)
-4. `Input` Concept description ("What you'll receive")
-5. `Output` Concept description ("What you'll produce")
-6. `Resolve` values (pre-fetched store data, rendered inline)
-7. Store summaries (scalar values inline; collections as count/key summaries)
-8. Exit conditions (`complete(execution_id, output)` / `need(execution_id, reason)`)
-9. The actual input value
+The framework dispatches a leaf Op by rendering one prompt, in this order:
+
+| Section | From |
+|---|---|
+| `## Your task` | `Intent` |
+| `## Policies` | `Uses` snippets, then `Requires` snippets resolved by role |
+| `## What you'll receive` | `Input` Concept description + its Fields |
+| `## What you'll produce` | `Output` Concept description + its Fields (`## What to hold by the end` under `output_contract = manifest`) |
+| `## Capabilities available to you` | `Tools` — programmatic Tools and Op subroutines, listed separately |
+| `## State` | Store summaries: scalars inline, collections as counts/keys |
+| _(resolved values)_ | `Resolve` entries, pre-fetched before dispatch |
+| `## Exit conditions` | The `execution_id` plus `complete()` / `need()` |
+| `## Your input` | The actual input value |
+| `## Supplemental input` | Only on a re-dispatch that resolved a `need()` |
+| `## Result from <op>` | Only on a re-dispatch carrying an Op subroutine's result |
+
+`Meta` is deliberately absent — it documents the library, not the task, and never reaches the agent.
 
 You don't write the prompt. You write the source; the framework assembles. This is deliberate: source expresses intent, not prompt text.
 
@@ -473,24 +529,50 @@ You don't write the prompt. You write the source; the framework assembles. This 
 
 ## Testing your library
 
-Phase 1b ships no CLI yet. Authoring testing is plain pytest against the importable runtime.
+Authoring tests are plain pytest against the importable runtime — no MCP, no subagents, no LLM. You play the subagent yourself.
+
+`Runtime.start()` returns a dispatch instruction whose `agent_config["prompt"]` is the fully rendered prompt. The `execution_id` the agent must quote back is embedded in that prompt, so a test drives a step by pulling it out, calling `complete()` as the subagent would, then `step_complete()` as the main thread would:
 
 ```python
 # tests/test_classify_intent.py
-from clops.runtime import Runtime
-from my_company_ops.ops.classify_intent import ClassifyIntent
+import re
 
-def test_classifies_billing(registry_loaded):
+from clops.runtime import Runtime
+
+import my_company_ops  # importing the package registers its Ops
+
+EXECUTION_ID = re.compile(r'execution_id="(exec_[a-f0-9]+)"')
+
+
+def test_classifies_billing():
     rt = Runtime()
     dispatch = rt.start("ClassifyIntent", {"content": "double charged"})
     assert dispatch["action"] == "dispatch"
-    # Manual persona that mimics what a subagent would do:
-    rt.complete(dispatch["agent_config"]["_metadata"]["execution_id"], "billing: high confidence")
+
+    prompt = dispatch["agent_config"]["prompt"]
+    execution_id = EXECUTION_ID.search(prompt).group(1)
+
+    # Stand in for the subagent: it would call these two MCP tools.
+    rt.complete(execution_id, "billing: high confidence")
     result = rt.step_complete(dispatch["run_id"], "billing: high confidence")
+
     assert result["action"] == "done"
+    assert result["output"] == "billing: high confidence"
 ```
 
-For real behavior validation against actual LLM dispatches, use the framework's integration hooks (Phase 1b spec, section "Integration test"). Don't try to unit-test LLM output.
+Asserting on the rendered prompt is often the more useful test — it's the artifact your source actually produces, and it's deterministic:
+
+```python
+def test_prompt_carries_the_safety_policy():
+    rt = Runtime()
+    prompt = rt.start("ClassifyIntent", {"content": "hi"})["agent_config"]["prompt"]
+    assert "## Policies" in prompt
+    assert "account details" in prompt
+```
+
+The registry is process-global, so tests that define throwaway Ops should clear it between cases — `registry.clear()` in an autouse fixture, as this repo's own `tests/conftest.py` does.
+
+Don't try to unit-test LLM output. Test the source, the rendered prompt, and the runtime's transitions; leave behaviour to the smoke tests under `smoke-tests/`, which drive real dispatches.
 
 **Linter:** the linter is importable; run it from a pytest fixture or your library's `__init__.py` during tests.
 
@@ -504,14 +586,14 @@ def test_library_lints_clean():
     # warnings are fine
 ```
 
-Or from the CLI (Phase 3 slice 01):
+Or from the CLI:
 
 ```bash
-clops lint my_company.ops
-# [OK] 5 Ops registered (...). No lint findings.
+clops lint my_company.support_ops
+# [OK] 3 Ops registered (...). No lint findings.
 ```
 
-Exits non-zero on any error-level finding, making it suitable for pre-commit or CI.
+Exits non-zero on any error-level finding, making it suitable for pre-commit or CI. The package has to be importable — `pip install -e` it, or put it on `PYTHONPATH`.
 
 ## Exploring an existing library
 
@@ -521,12 +603,27 @@ Exits non-zero on any error-level finding, making it suitable for pre-commit or 
 clops show examples.my_company
 # Ops (3):
 #   HandleSupport  [ENTRY]
+#     Input:    UserMessage
+#     Output:   Response
 #     body:
 #       └─ sequence
 #         └─ ClassifyIntent
 #         └─ DraftResponse
 #   ClassifyIntent
+#     Input:    UserMessage
+#     Output:   Intent
+#     Uses:     safety_rules
+#     Requires: brand_voice
+#     Tools:    query_customer_history
+#   DraftResponse
 #     ...
+#
+# Snippets (2):
+#   brand_voice_default role=brand_voice  "Warm but efficient. First-person plural…"
+#   safety_rules  "Never acknowledge account details the user hasn't already p…"
+#
+# Tools (1):
+#   query_customer_history  "Retrieve the last 10 support interactions for a customer."
 ```
 
 Reads the registry only; no side effects on disk.
@@ -537,7 +634,7 @@ Reads the registry only; no side effects on disk.
 
 ### Do
 
-- **Write bare Ops first.** `Intent + Input + Output` is complete. Ship it. Add `Uses` / `Requires` / `Tools` when you hit the concrete need.
+- **Write bare Ops first.** `Input + Output + Intent + Meta` is complete. Ship it. Add `Uses` / `Requires` / `Tools` when you hit the concrete need.
 - **Extract Snippets from repetition.** When two Ops need the same policy paragraph, promote it to a module-level Snippet.
 - **Name Concepts after what they _are_,** not how they're structured. `Intent`, not `IntentDict`. `DraftResponse`, not `ResponseJSON`.
 - **Use `sequence` for linear flows,** `branch_on` for category-driven flows, `gather` for fan-out, `loop` for iteration until satisfied.
@@ -563,6 +660,7 @@ Reads the registry only; no side effects on disk.
 - **Don't write an Output field of the form _"for each X: a, b, c, d"_ over an unbounded collection.** That's a payload field, and it will be relayed. It is well-formed and it is still the wrong shape — spill the bulk and relay a handle, a count and your judgment instead.
 - **Don't mistake a long field description for a good one.** A composite field's description has to be self-sufficient, because there's no type parameter and the renderer doesn't recurse. Self-sufficiency is about being unambiguous, not about asking for more.
 - **Don't treat a store write instructed in prose as a durability mechanism.** Asking an Op to append to a store is a request the model may decline, silently. If the write has to happen, run it from a `Tool` handler and give the consumer a count to check.
+- **Don't set `Examples`, `exit`, `before_run` or `after_run` and expect anything.** They're declared but unread — see the table in the `Op` section. They fail silently, which is the worst way to fail.
 
 ---
 
@@ -573,7 +671,7 @@ The reference library lives at `examples/my_company/` in the framework repo. Rea
 ```
 examples/my_company/
 ├── concepts.py          — UserMessage, Intent, Response
-├── snippets.py          — safety_rules (shared), brand_voice (role)
+├── snippets.py          — safety_rules (shared), brand_voice_default (role="brand_voice")
 ├── tools.py             — query_customer_history
 └── ops/
     ├── classify_intent.py   — leaf Op with Uses, Requires, Tools

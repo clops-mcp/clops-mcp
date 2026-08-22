@@ -7,8 +7,9 @@ Agent tool has no per-call override for those fields. The Op's declared
 Tools are mentioned in the prompt but not enforced at the Agent level.
 
 The rendered prompt embeds the execution_id literally so the subagent
-can pass it on every `complete`/`need` call. This is the explicit
-correlation mechanism for Phase 1b (see phase-1b-spec.md section 2).
+can pass it on every `complete`/`need` call. That literal is the explicit
+correlation mechanism — the runtime trusts the id the subagent quotes
+back rather than inferring which execution a result belongs to.
 """
 
 from __future__ import annotations

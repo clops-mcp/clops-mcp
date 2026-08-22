@@ -55,7 +55,7 @@ def test_team_attribute_rejected():
 
     assert "`Team`" in str(exc.value)
     assert "teammate" in str(exc.value)
-    assert "docs/migration-interpreter-swap.md" in str(exc.value)
+    assert "delete the attribute" in str(exc.value)
 
 
 def test_persistence_attribute_rejected():
@@ -68,7 +68,7 @@ def test_persistence_attribute_rejected():
             persistence = "teammate"
 
     assert "`persistence`" in str(exc.value)
-    assert "docs/migration-interpreter-swap.md" in str(exc.value)
+    assert "delete the attribute" in str(exc.value)
 
 
 def test_init_attribute_rejected():
@@ -81,7 +81,7 @@ def test_init_attribute_rejected():
             Init = Msg
 
     assert "`Init`" in str(exc.value)
-    assert "docs/migration-interpreter-swap.md" in str(exc.value)
+    assert "delete the attribute" in str(exc.value)
 
 
 def test_all_three_removed_attributes_reported_together():

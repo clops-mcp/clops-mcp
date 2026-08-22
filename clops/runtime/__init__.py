@@ -1,9 +1,10 @@
 """Runtime — the execution engine that drives Ops through dispatches.
 
-Phase 1b: the MCP server wraps `Runtime` and exposes its methods as
-tools. Main-thread-facing: `list_processes`, `start_process`,
-`step_complete`, `run_status`, `abort_run`. Subagent-facing:
-`complete(execution_id, output)` and `need(execution_id, reason)` —
+The MCP server wraps `Runtime` and exposes its methods as tools.
+Main-thread-facing: `list_processes`, `start_process`, `step_complete`,
+`step_complete_parallel`, `resolve_need`, `run_status`, `abort_run`,
+`configure_clops`. Subagent-facing: `complete(execution_id, output)`,
+`need(execution_id, reason)`, `state(...)` and `call_tool(...)` —
 execution_id is baked into the subagent's rendered prompt. The hook
 handler calls `release_one_completed(parent_session_id)` on SubagentStop.
 """

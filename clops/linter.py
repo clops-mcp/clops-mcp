@@ -173,19 +173,32 @@ def check_op(op_cls: type[Op], result: LintResult) -> None:
 
     tools = list(getattr(op_cls, "Tools", []))
     for t in tools:
-        if not isinstance(t, Tool):
+        if isinstance(t, Tool):
+            if registry.tool(t.name) is None:
+                result.add(
+                    Severity.ERROR,
+                    name,
+                    "tool_integrity",
+                    f"Tools references Tool {t.name!r} that isn't in the registry.",
+                )
+        elif isinstance(t, type) and issubclass(t, Op):
+            # Op subroutine reference. The metaclass accepts these (op.py),
+            # the renderer gives them their own capability section
+            # (dispatch.py) and the server routes them to call_op
+            # (mcp_server.py). Only integrity is worth checking here.
+            if registry.op(t.__name__) is None:
+                result.add(
+                    Severity.ERROR,
+                    name,
+                    "tool_integrity",
+                    f"Tools references Op subroutine {t.__name__!r} that isn't registered.",
+                )
+        else:
             result.add(
                 Severity.ERROR,
                 name,
                 "tools_type",
-                f"Tools contains non-Tool item {t!r}.",
-            )
-        elif registry.tool(t.name) is None:
-            result.add(
-                Severity.ERROR,
-                name,
-                "tool_integrity",
-                f"Tools references Tool {t.name!r} that isn't in the registry.",
+                f"Tools contains {t!r}. Expected a Tool instance or an Op subclass.",
             )
 
     if len(tools) > TOOLS_SOFT_MAX:

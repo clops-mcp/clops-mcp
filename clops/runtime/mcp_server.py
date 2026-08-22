@@ -673,7 +673,7 @@ class FlowServer:
     # parent_session_id is captured from the MCP _meta field when the
     # harness provides it; absent, the SubagentStop hook won't be able
     # to correlate and will fail-block. Acceptable for Phase 1b —
-    # backlog.md tracks tightening.
+    # Tightening this is tracked in the issue tracker.
 
     def _handle_complete(self, args: dict) -> Any:
         return self.runtime.complete(

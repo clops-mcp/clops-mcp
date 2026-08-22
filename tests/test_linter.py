@@ -175,3 +175,70 @@ def test_output_without_fields_is_clean():
     result = LintResult()
     check_op(NoFields, result)
     assert not [f for f in result.warnings if f.rule == "output_bulk_only"]
+
+
+# ---- Op subroutines in Tools -----------------------------------------
+
+
+def test_op_subroutine_in_tools_is_not_an_error():
+    """op.py accepts Op subclasses in Tools; the linter must agree."""
+    class Subroutine(Op):
+        Input = M
+        Output = M
+        Intent = "Do the sub-thing."
+        Meta = "Test fixture Op used as a subroutine."
+
+    class Caller(Op):
+        Input = M
+        Output = M
+        Intent = "Do the thing, delegating part of it."
+        Meta = "Test fixture Op that declares a subroutine."
+        Tools = [Subroutine]
+
+    result = LintResult()
+    check_op(Caller, result)
+    assert result.ok, [str(f) for f in result.findings]
+
+
+def test_unregistered_op_subroutine_is_a_tool_integrity_error():
+    class Ghost(Op):
+        Input = M
+        Output = M
+        Intent = "Vanish."
+        Meta = "Test fixture Op removed from the registry."
+
+    class Caller2(Op):
+        Input = M
+        Output = M
+        Intent = "Call the ghost."
+        Meta = "Test fixture Op referencing an unregistered subroutine."
+        Tools = [Ghost]
+
+    from clops.registry import registry
+
+    # Ops are keyed by qualified path; the bare-name multimap indexes them.
+    for key, op in list(registry._ops.items()):
+        if op is Ghost:
+            del registry._ops[key]
+            paths = registry._by_bare.get(Ghost.__name__)
+            if paths and key in paths:
+                paths.remove(key)
+
+    result = LintResult()
+    check_op(Caller2, result)
+    assert any(f.rule == "tool_integrity" for f in result.errors)
+
+
+def test_tools_type_error_names_both_accepted_shapes():
+    class Bad2(Op):
+        Input = M
+        Output = M
+        Intent = "x"
+        Meta = "Test fixture Op with a junk Tools entry."
+
+    Bad2.Tools = ["not a tool"]
+    result = LintResult()
+    check_op(Bad2, result)
+    findings = [f for f in result.errors if f.rule == "tools_type"]
+    assert len(findings) == 1
+    assert "Tool instance or an Op subclass" in findings[0].message

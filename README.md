@@ -268,6 +268,7 @@ unregistered references, oversized Intents, Outputs that carry nothing but bulk.
 | | |
 |---|---|
 | **Concept** | A named, described handle for data flowing between Ops. |
+| **Field** | An optional named, described member of a Concept. Prose, not a type — it tells the agent what to provide or hand back. |
 | **Snippet** | Reusable prompt text — policy, format rules — pinned by reference or resolved by role. |
 | **Tool** | A Python function an Op's subagent can call mid-reasoning. Not a Claude Code tool. |
 | **Store** | Run-scoped mutable state shared across a composition's steps. TinyDB-backed. The declared type (`str`, `list[X]`, `dict[str, X]`) selects which operations the agent gets. |
@@ -306,7 +307,7 @@ Version 0.4.4, alpha, one author. Specifically:
 
 | Doc | What it covers |
 |-----|---------------|
-| [Authoring Spec](https://github.com/clops-mcp/clops-mcp/blob/main/authoring-spec.md) | Full authoring reference — the five primitives, combinators, and the rules the linter enforces |
+| [Authoring Spec](https://github.com/clops-mcp/clops-mcp/blob/main/authoring-spec.md) | Full authoring reference — the primitives, combinators, prompt assembly, and every rule the metaclass and linter enforce |
 
 The link is absolute so it also resolves from the PyPI project page.
 

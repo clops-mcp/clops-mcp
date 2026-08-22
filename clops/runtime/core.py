@@ -1,14 +1,18 @@
-"""Runtime core — the execution surface the MCP server will wrap.
+"""Runtime core — the execution surface the MCP server wraps.
 
-Runs are driven by the main thread (`start`, `step_complete`) and subagents
-(`get_task`, `complete`, `need`). A Runtime instance is the authoritative state
+Runs are driven by the main thread (`start`, `step_complete`,
+`step_complete_parallel`, `resolve_need`) and by subagents (`complete`,
+`need`, `call_op`). A Runtime instance is the authoritative state
 container for all active runs.
 
-Phase 1a scope:
-    - Sequential composition only.
-    - Worker Ops only.
-    - One run at a time is not enforced, but concurrent runs share the pool.
-    - `need` fails the run with the reason captured in error state.
+Scope notes:
+    - `sequence`, `branch_on`, `gather` and `loop` all execute; `gather`
+      surfaces its branches as one `dispatch_parallel` round.
+    - `need` does not fail the run. It parks the execution and returns
+      `needs_resolution` to the main thread; `resolve_need` re-dispatches
+      the same Op with the supplemental attached.
+    - Concurrent runs are not prevented, and share the pool.
+    - Run state is held in memory for the process's lifetime.
 """
 
 from __future__ import annotations

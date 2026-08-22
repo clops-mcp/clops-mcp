@@ -6,7 +6,7 @@ library root plus the intra-library folder hierarchy plus the Op name
 folders in one library) define the same bare `OpName` without colliding. A
 secondary `bare-name -> [qualified path, ...]` multimap powers bare-name lookups
 and disambiguation: a unique bare name resolves directly; an ambiguous one
-raises rather than silently picking. See `docs/runtime-scoping-spec.md` §2.
+raises rather than silently picking.
 """
 
 from __future__ import annotations

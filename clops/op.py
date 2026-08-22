@@ -64,8 +64,7 @@ class OpMeta(type):
                 errors.append(
                     f"Op {name!r} declares `{removed}`, which belonged to the removed "
                     "teammate feature (persistent sub-agents). The runtime no longer "
-                    "honors it — delete the attribute. "
-                    "See docs/migration-interpreter-swap.md."
+                    "honors it — delete the attribute."
                 )
 
         input_cls = namespace.get("Input")
@@ -145,21 +144,29 @@ class OpMeta(type):
 class Op(metaclass=OpMeta):
     """Base class for every Op.
 
-    Required on every concrete Op:
+    Required on every concrete Op (the metaclass raises TypeError otherwise):
         Input: Concept subclass
-        Output: Concept subclass
-        Intent: non-empty docstring describing purpose + anti-scope
-        Meta: why this Op exists, what approach it takes, what was considered
+        Output: exactly one Concept subclass
+        Intent: non-empty string — purpose + anti-scope. Rendered into
+            the dispatched prompt.
+        Meta: non-empty string — why this Op exists, what approach it
+            takes, what was considered. NOT rendered into the prompt; it
+            documents the library for whoever inherits it.
 
-    Optional:
+    Optional, and honored by the runtime:
         Uses: list of pinned Snippets / Op references
         Requires: list of SnippetRole soft declarations
-        Tools: list of Tool instances
-        Examples: iterable of few-shot demonstrations
-        Model: optional model override
-        before_run / after_run: callbacks
+        Tools: list of Tool instances and/or Op subclasses (subroutines)
+        Model: model override for this Op's dispatch
         body: combinator tree for composition Ops
-        entry / exit: bool markers for entry/exit Ops
+        entry: marks a top-level entry point — the procedure tag, read by
+            list_processes() and start()
+
+    Declared but NOT consumed anywhere in the runtime. They accept values
+    and do nothing; treat them as reserved, not as features:
+        Examples: never rendered into the prompt
+        exit: nothing reads it — only `entry` affects dispatch
+        before_run / after_run: no callback hook exists
     """
 
     Input: ClassVar[type]
