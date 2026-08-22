@@ -61,6 +61,7 @@ Compare what you see against the scenario's "Expected behavior" section. Pass / 
 | 11 | `subroutine` | Op invokes another Op as a subroutine capability via `call_tool`. Runtime transparently dispatches the subroutine and re-dispatches the caller with the result. Main thread sees only standard dispatch/step_complete. |
 | 12 | `state` | State stores shared across a composition pipeline. ManageProject declares `tasks = Store(dict[str, Task])`; PlanTasks creates tasks in the store; ExecuteTasks reads and completes them. Validates state persistence across pipeline steps. |
 | 13 | `gather-subroutine` | A dynamic sub-Op call (`call_tool`) from inside a `gather` branch. One branch defines its key term via a `DefineTerm` sub-Op while the peer branch runs concurrently; the runtime parks the calling branch, runs the subroutine, re-dispatches it, then joins in declaration order. Exercises partial gather-suspension (Slice 3). |
+| 14 | `workspace` | The run workspace. A step asked for a long document writes it to a file and hands back a summary plus the path; the next step reads that file. Nothing in the library mentions files — the runtime's prompt does. |
 
 Each scenario is fully self-contained — no shared state, no cross-folder dependencies. Pick any one and run it in isolation.
 
