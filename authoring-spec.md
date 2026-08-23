@@ -214,7 +214,7 @@ That's complete. Runnable as a process. Additive fields below are optional.
 | _`name`_ `= Store(T)` | `Store` attribute | Run-scoped state. Composition Ops only. |
 | `Resolve` | `dict[str, resolver spec]` | Pre-computed queries evaluated before dispatch. |
 | `Examples` | iterable | Few-shot demonstrations. |
-| `Model` | `str` \| `None` | Optional model override. |
+| `Model` | `str` \| `None` | Optional model override — a tier (`models.HIGH` / `MEDIUM` / `LOW`) or a model id. Every step must call `complete` before its turn ends, so `MEDIUM` is the practical floor; see `clops/models.py`. |
 | `body` | combinator tree | Absent on leaves; present on compositions. |
 | `entry` | `bool` | Marks an Op as a top-level entry point. |
 | `exit` | `bool` | Marks an Op as a final exit point. |

@@ -27,6 +27,12 @@ class RunStatus(str, Enum):
     COMPLETED = "completed"
     FAILED = "failed"
     ABORTED = "aborted"
+    #: Reloaded from disk after the process that was driving it went away
+    #: (an /mcp reconnect, an editor restart). The record and the state
+    #: stores survive and are readable; the flow itself cannot continue,
+    #: because a run's control-flow position lives on the interpreter
+    #: coroutine's Python stack, which does not outlive the process.
+    INTERRUPTED = "interrupted"
 
 
 class ExecutionStatus(str, Enum):

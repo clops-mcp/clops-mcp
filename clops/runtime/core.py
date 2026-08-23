@@ -17,6 +17,7 @@ import uuid
 from collections import deque
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Optional
 
 from clops.combinators import BranchOn, Gather, Loop, Sequence, walk
@@ -43,8 +44,31 @@ DEFAULT_SYSTEM_PROMPT = (
 )
 
 
+#: Explanation attached to any run reloaded from disk after the process that
+#: was driving it went away. Kept in one place because the orchestrator meets
+#: it from two directions: `run_status` on a run id it remembers, and any
+#: attempt to advance one.
+INTERRUPTED_NOTE = (
+    "This run was interrupted — the process driving it went away (an /mcp "
+    "reconnect, a restart) and a run's control-flow position does not survive "
+    "that. Its record and its state stores were reloaded from disk and are "
+    "readable, but the flow cannot be advanced: start a fresh run, and read "
+    "this one's stores and per-execution outputs for the work it already did."
+)
+
+
 def _now() -> datetime:
     return datetime.now(timezone.utc)
+
+
+def _parse_ts(value: Any) -> Optional[datetime]:
+    """Read back a timestamp the run record stored as an ISO string."""
+    if not isinstance(value, str):
+        return None
+    try:
+        return datetime.fromisoformat(value)
+    except ValueError:
+        return None
 
 
 class RuntimeError_(Exception):
@@ -103,9 +127,17 @@ class Runtime:
         self,
         *,
         hook_endpoint: str | None = None,
+        state_dir: Path | None = None,
         max_subroutine_depth: int = 8,
         max_invokes_per_execution: int = 64,
     ):
+        # Where run state is written. When set, every run gets a TinyDB file at
+        # `<state_dir>/state/<run_id>.json` holding both its stores and its run
+        # record, so an interrupted run (an /mcp reconnect, an editor restart)
+        # leaves something readable behind instead of vanishing with the
+        # process. When None, state is in-memory — fine for tests and one-shot
+        # embedding, not for the multi-hour runs the MCP server drives.
+        self._state_dir = state_dir
         # Dynamic in-Op flow control (call_op) limits. Configurable so a long
         # flow with nested decision sub-Ops has headroom; the budget bounds
         # runaway agent-driven loops (which the loop-stable depth cap does not).
@@ -170,24 +202,40 @@ class Runtime:
 
     def status(self, run_id: str) -> dict[str, Any]:
         run = self._get_run(run_id)
-        return {
+        # A live run's step outputs already came back through step_complete;
+        # repeating them here would only inflate the payload. Once the run has
+        # stopped — done, failed, interrupted — they are the record of what it
+        # produced, and this is the only place left to read them.
+        include_outputs = run.status is not RunStatus.RUNNING
+        executions = []
+        for e in run.executions.values():
+            entry = {
+                "id": e.id,
+                "op_name": e.op_name,
+                "status": e.status.value,
+                "error": e.error,
+                "need_reason": e.need_reason,
+            }
+            if include_outputs:
+                entry["output"] = e.output_snapshot
+            executions.append(entry)
+        payload: dict[str, Any] = {
             "run_id": run.id,
             "process": run.process,
             "status": run.status.value,
             "output": run.output,
             "error": run.error,
             "pending_executions": sorted(run.pending_executions),
-            "executions": [
-                {
-                    "id": e.id,
-                    "op_name": e.op_name,
-                    "status": e.status.value,
-                    "error": e.error,
-                    "need_reason": e.need_reason,
-                }
-                for e in run.executions.values()
-            ],
+            "executions": executions,
         }
+        sm = self._state_managers.get(run.id)
+        if sm is not None and sm.stores:
+            payload["stores"] = {
+                name: sd.render_for_prompt() for name, sd in sm.stores.items()
+            }
+        if run.status is RunStatus.INTERRUPTED:
+            payload["note"] = INTERRUPTED_NOTE
+        return payload
 
     def get_run(self, run_id: str) -> Run:
         return self._get_run(run_id)
@@ -248,32 +296,34 @@ class Runtime:
         run = Run(id=run_id, process=process, input=input_value, status=RunStatus.RUNNING)
         self._runs[run_id] = run
 
-        # Initialize state stores for this run.
-        stores = self._collect_stores(op_cls)
-        if stores or self._project_constants:
-            from clops.runtime.state_manager import StateManager
+        # Initialize state stores for this run. The StateManager is created
+        # unconditionally — it owns the run's state file, which carries the run
+        # record even when the process declares no stores.
+        from clops.runtime.state_manager import StateManager
 
-            sm = StateManager(run_id)
-            for name, store in stores.items():
-                sm.register_store(
-                    name, store.kind, store.value_type,
-                    custom_queries=store._static_queries or None,
-                    custom_methods={
-                        k: lambda table, _m=m, _s=store, **kw: _m(_s, table, **kw)
-                        for k, m in store._custom_methods.items()
-                    } or None,
-                )
-            # Inject project-level constants as read-only scalar stores.
-            for key, value in self._project_constants.items():
-                sd = sm.register_store(key, "scalar", str, read_only=True)
-                sd._scalar_set(value)
-            self._state_managers[run_id] = sm
+        stores = self._collect_stores(op_cls)
+        sm = StateManager(run_id, state_dir=self._state_dir)
+        for name, store in stores.items():
+            sm.register_store(
+                name, store.kind, store.value_type,
+                custom_queries=store._static_queries or None,
+                custom_methods={
+                    k: lambda table, _m=m, _s=store, **kw: _m(_s, table, **kw)
+                    for k, m in store._custom_methods.items()
+                } or None,
+            )
+        # Inject project-level constants as read-only scalar stores.
+        for key, value in self._project_constants.items():
+            sd = sm.register_store(key, "scalar", str, read_only=True)
+            sd._scalar_set(value)
+        self._state_managers[run_id] = sm
 
         # One driver runs the whole flow: the Op's interpreter coroutine. Leaf or
         # composite, it drives to the first quiescence and surfaces the frontier.
         # require_full=True at the root: the run's terminal leaf produces the run
         # output, so it must emit a real value, not a manifest.
         run.driver = Driver(self._exec_node(op_cls, input_value, require_full=True))
+        self._persist_run(run)
         return run
 
     def step_complete(self, run_id: str, result: Any) -> dict[str, Any]:
@@ -286,8 +336,7 @@ class Runtime:
         all of these; we then drive the flow to its next action.
         """
         run = self._get_run(run_id)
-        if run.status != RunStatus.RUNNING:
-            raise RuntimeError_(f"Run {run_id} is not running ({run.status}).")
+        self._assert_running(run)
         pending_id = run.single_pending()
         if pending_id is None:
             if not run.pending_executions:
@@ -392,6 +441,7 @@ class Runtime:
             ):
                 execution.status = ExecutionStatus.FAILED
                 execution.error = "Run aborted"
+        self._persist_run(run)
         return {"run_id": run.id, "status": run.status.value}
 
     def resolve_need(
@@ -407,8 +457,7 @@ class Runtime:
         on the re-dispatch will fail the run ("need persisted").
         """
         run = self._get_run(run_id)
-        if run.status != RunStatus.RUNNING:
-            raise RuntimeError_(f"Run {run_id} is not running ({run.status}).")
+        self._assert_running(run)
         try:
             _, execution = self._locate_execution(execution_id)
         except RuntimeError_:
@@ -471,6 +520,7 @@ class Runtime:
         execution.status = ExecutionStatus.COMPLETED
         execution.completed_at = _now()
         self._record_dispatch_completion(execution, parent_session_id)
+        self._persist_run(self._runs[execution.run_id])
         return {"ok": True}
 
     def need(
@@ -489,6 +539,7 @@ class Runtime:
         execution.error = f"need: {reason}"
         execution.completed_at = _now()
         self._record_dispatch_completion(execution, parent_session_id)
+        self._persist_run(self._runs[execution.run_id])
         return {"ok": True}
 
     def call_op(
@@ -600,8 +651,21 @@ class Runtime:
 
     # ---- Internals ----------------------------------------------------
 
+    def _assert_running(self, run: Run) -> None:
+        """Reject advancing a run that isn't live, saying why when it's a
+        recovered one — 'not running (interrupted)' alone leaves the caller
+        guessing whether the work is gone or merely unreachable."""
+        if run.status is RunStatus.RUNNING:
+            return
+        if run.status is RunStatus.INTERRUPTED:
+            raise RuntimeError_(f"Run {run.id} cannot be advanced. {INTERRUPTED_NOTE}")
+        raise RuntimeError_(f"Run {run.id} is not running ({run.status}).")
+
     def _get_run(self, run_id: str) -> Run:
         run = self._runs.get(run_id)
+        if run is None:
+            # Not in memory: this process may not be the one that started it.
+            run = self.recover(run_id)
         if run is None:
             raise RuntimeError_(f"Unknown run {run_id!r}.")
         return run
@@ -648,6 +712,165 @@ class Runtime:
         queue = self._session_dispatches.setdefault(parent_session_id, deque())
         queue.append(execution.id)
 
+    # ---- Durability ---------------------------------------------------
+    #
+    # A run is hours of wall clock and dozens of subagents. Holding all of it
+    # on the Runtime object means an /mcp reconnect is total, silent loss.
+    # Every state-changing entry point writes the run record next to its
+    # stores, so the worst case becomes an interruption you can read back.
+
+    _EXEC_FIELDS = (
+        "id", "op_name", "run_id", "input_snapshot", "output_snapshot",
+        "parent_session_id", "kind", "attempts", "error", "need_reason",
+        "need_supplemental", "need_resolved", "completed_flag",
+        "subroutine_depth", "caller_execution_id", "invoke_count",
+    )
+
+    def _persist_run(self, run: Run) -> None:
+        """Write the run record into the run's state file. Never raises.
+
+        Persistence is a safety net, not a correctness dependency: a run that
+        cannot write its record must still run.
+        """
+        sm = self._state_managers.get(run.id)
+        if sm is None:
+            return
+        try:
+            sm.save_run_record(self._run_record(run))
+        except Exception:  # noqa: BLE001 — durability must not break a run.
+            pass
+
+    def _run_record(self, run: Run) -> dict[str, Any]:
+        sm = self._state_managers.get(run.id)
+        executions = []
+        for e in run.executions.values():
+            record = {f: getattr(e, f) for f in self._EXEC_FIELDS}
+            record["status"] = e.status.value
+            record["started_at"] = e.started_at
+            record["completed_at"] = e.completed_at
+            executions.append(record)
+        return {
+            "run_id": run.id,
+            "process": run.process,
+            "input": run.input,
+            "status": run.status.value,
+            "output": run.output,
+            "error": run.error,
+            "created_at": run.created_at,
+            "completed_at": run.completed_at,
+            "pending_executions": sorted(run.pending_executions),
+            "executions": executions,
+            # Store kinds, so a reopened state file can be read back without
+            # re-importing the Op library that declared the stores.
+            "stores": {n: sd.kind for n, sd in (sm.stores if sm else {}).items()},
+        }
+
+    def recover(self, run_id: str) -> Optional[Run]:
+        """Reload a run from disk into this Runtime, or return None.
+
+        What comes back is the record and the state stores — everything the
+        run wrote down. What cannot come back is the flow itself: a run's
+        position lives on the interpreter coroutine's Python stack, which died
+        with the process. A recovered run is marked INTERRUPTED and is
+        read-only; its stores are the recovery path for the work it did.
+        """
+        if run_id in self._runs:
+            return self._runs[run_id]
+        if self._state_dir is None:
+            return None
+
+        from clops.runtime.state_manager import StateManager, state_db_path
+
+        if not state_db_path(self._state_dir, run_id).exists():
+            return None
+        sm = StateManager(run_id, state_dir=self._state_dir)
+        record = sm.load_run_record()
+        if record is None:
+            sm.close()
+            return None
+
+        for name, kind in (record.get("stores") or {}).items():
+            sm.register_store(name, kind)
+        self._state_managers[run_id] = sm
+
+        status = RunStatus(record.get("status", RunStatus.RUNNING.value))
+        if status in (RunStatus.RUNNING, RunStatus.PENDING):
+            status = RunStatus.INTERRUPTED
+        run = Run(
+            id=record["run_id"],
+            process=record.get("process", ""),
+            input=record.get("input"),
+            status=status,
+            output=record.get("output"),
+            error=record.get("error"),
+        )
+        created_at = _parse_ts(record.get("created_at"))
+        if created_at is not None:
+            run.created_at = created_at
+        for e in record.get("executions", []):
+            execution = OpExecution(
+                id=e["id"],
+                op_name=e.get("op_name", ""),
+                run_id=run.id,
+                input_snapshot=e.get("input_snapshot"),
+                status=ExecutionStatus(e.get("status", "pending")),
+                output_snapshot=e.get("output_snapshot"),
+                error=e.get("error"),
+                need_reason=e.get("need_reason"),
+                attempts=e.get("attempts", 0),
+                completed_flag=e.get("completed_flag", False),
+            )
+            run.add_execution(execution)
+        # No driver and no parked slots: nothing to resume against.
+        self._runs[run_id] = run
+        return run
+
+    def list_runs(self) -> list[dict[str, Any]]:
+        """Summarize every run this Runtime knows about, live or on disk.
+
+        The entry point after a reconnect: the orchestrator lost its run ids
+        along with the conversation, and this is where it finds them again.
+        """
+        summaries: dict[str, dict[str, Any]] = {}
+        if self._state_dir is not None:
+            from clops.runtime.state_manager import StateManager
+
+            state_root = self._state_dir / "state"
+            if state_root.is_dir():
+                for path in sorted(state_root.glob("run_*.json")):
+                    run_id = path.stem
+                    if run_id in self._runs:
+                        continue
+                    sm = StateManager(run_id, state_dir=self._state_dir)
+                    record = sm.load_run_record()
+                    sm.close()
+                    if record is None:
+                        continue
+                    status = record.get("status")
+                    if status in (RunStatus.RUNNING.value, RunStatus.PENDING.value):
+                        status = RunStatus.INTERRUPTED.value
+                    summaries[run_id] = {
+                        "run_id": run_id,
+                        "process": record.get("process"),
+                        "status": status,
+                        "created_at": record.get("created_at"),
+                        "executions": len(record.get("executions", [])),
+                        "live": False,
+                    }
+        for run_id, run in self._runs.items():
+            summaries[run_id] = {
+                "run_id": run_id,
+                "process": run.process,
+                "status": run.status.value,
+                "created_at": run.created_at.isoformat(),
+                "executions": len(run.executions),
+                "live": run.driver is not None,
+            }
+        # Newest first: after a reconnect, the run you lost is the last one.
+        return sorted(
+            summaries.values(), key=lambda r: str(r["created_at"]), reverse=True
+        )
+
     def _fail_run(self, run: Run, error: str) -> dict[str, Any]:
         """Mark a run as failed, clear pending state, return the failure payload.
 
@@ -660,6 +883,7 @@ class Runtime:
         run.completed_at = _now()
         run.pending_executions.clear()
         run.slot_for.clear()
+        self._persist_run(run)
         return {"run_id": run.id, "action": "failed", "error": run.error}
 
     def _resolve_branch(self, branch: BranchOn, upstream_output: Any) -> type[Op]:
@@ -871,8 +1095,13 @@ class Runtime:
             run.output = payload
             run.status = RunStatus.COMPLETED
             run.completed_at = _now()
+            self._persist_run(run)
             return {"run_id": run.id, "action": "done", "output": run.output}
-        return self._materialize_frontier(run, payload)
+        action = self._materialize_frontier(run, payload)
+        # Every quiescence is a point the run could be interrupted at: the
+        # dispatch is now outstanding and the next call may never arrive.
+        self._persist_run(run)
+        return action
 
     def _materialize_frontier(self, run: Run, batch: list) -> dict[str, Any]:
         """Turn a Driver frontier batch into the next dispatch action.
@@ -965,8 +1194,7 @@ class Runtime:
         completed, joins them (declaration order) and resumes the parent.
         """
         run = self._get_run(run_id)
-        if run.status != RunStatus.RUNNING:
-            raise RuntimeError_(f"Run {run_id} is not running ({run.status}).")
+        self._assert_running(run)
         if run.driver.forks_in_flight <= 0 or not run.pending_executions:
             raise RuntimeError_(
                 f"Run {run_id} has no active gather; use step_complete instead."
@@ -1034,7 +1262,7 @@ class Runtime:
         """Execute a state operation for a running execution."""
         _, execution = self._locate_execution(execution_id)
         sm = self._state_managers.get(execution.run_id)
-        if sm is None:
+        if sm is None or not sm.stores:
             raise RuntimeError_(f"No state stores for run {execution.run_id!r}.")
         return sm.execute(store, operation, execution_id=execution_id, **kwargs)
 

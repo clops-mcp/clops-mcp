@@ -47,7 +47,10 @@ def test_start_creates_state_manager():
     assert "tasks" in sm.stores
 
 
-def test_start_no_stores_no_state_manager():
+def test_start_no_stores_gets_an_empty_state_manager():
+    """A run always has a StateManager — it owns the run's state file, which
+    carries the run record whether or not the process declares stores."""
+
     class NoStore(Op):
         Input = Brief
         Output = Result
@@ -58,7 +61,8 @@ def test_start_no_stores_no_state_manager():
     rt = Runtime()
     d = rt.start("NoStore", "brief", enforce_entry=True)
     sm = rt.get_state_manager(d["run_id"])
-    assert sm is None
+    assert sm is not None
+    assert sm.stores == {}
 
 
 def test_start_collects_stores_from_body():

@@ -164,7 +164,7 @@ def render_prompt(
 
     # Resolve: pre-computed queries from input + state.
     resolve_spec = getattr(op_cls, "Resolve", None)
-    if resolve_spec and state_manager:
+    if resolve_spec and state_manager and state_manager.stores:
         from clops.runtime.resolver import render_resolved_for_prompt, resolve
 
         resolved = resolve(resolve_spec, state_manager, input_value)

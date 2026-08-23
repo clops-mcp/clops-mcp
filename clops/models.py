@@ -2,6 +2,14 @@
 
 Semantic model tiers so Ops reference capability levels, not model IDs.
 Update the mappings here when new models ship — every Op picks it up.
+
+A floor worth knowing about: every dispatched step must call `complete` (or
+`need`) before it ends its turn — that is the whole contract. A step whose
+agent cannot reliably call an MCP tool cannot hold up its end, and the
+cheapest tier has been observed failing exactly there: MCP schemas loaded
+lazily never became callable, and the step burned a dispatch to report that
+it could not finish. Treat MEDIUM as the floor for any real step; keep LOW
+for work you can afford to have to re-dispatch.
 """
 
 
@@ -10,8 +18,8 @@ Update the mappings here when new models ship — every Op picks it up.
 # ---------------------------------------------------------------------------
 
 HIGH = "high"       # Deep reasoning, complex analysis, nuanced judgment
-MEDIUM = "medium"   # Solid reasoning, good for most structured tasks
-LOW = "low"         # Fast/cheap, tool calling, classification, formatting
+MEDIUM = "medium"   # Solid reasoning, most structured tasks — the practical floor
+LOW = "low"         # Fast/cheap, but see the tool-calling caveat in the module docstring
 
 
 # ---------------------------------------------------------------------------
