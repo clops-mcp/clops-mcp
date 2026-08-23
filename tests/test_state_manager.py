@@ -252,6 +252,29 @@ def test_render_list_preview():
     assert "..." in rendered
 
 
+def test_render_list_preview_labels_its_own_elision():
+    """An unlabelled preview reads as the whole store. Say how much of how
+    many is shown, and which call returns the rest."""
+    sm = make_sm()
+    sd = sm.register_store("files", "list")
+    for i in range(45):
+        sd._list_append(f"file{i}.py")
+    rendered = sd.render_for_prompt()
+    assert "showing 3 of 45" in rendered
+    assert "files.list()" in rendered
+    assert "file4.py" not in rendered
+
+
+def test_render_short_list_claims_no_elision():
+    sm = make_sm()
+    sd = sm.register_store("files", "list")
+    sd._list_append("only.py")
+    rendered = sd.render_for_prompt()
+    assert "showing" not in rendered
+    assert "..." not in rendered
+    assert "only.py" in rendered
+
+
 def test_render_dict_preview():
     sm = make_sm()
     sd = sm.register_store("tasks", "dict")
@@ -259,6 +282,41 @@ def test_render_dict_preview():
         sd._dict_set(f"t{i}", {"name": f"Task {i}"})
     rendered = sd.render_for_prompt()
     assert "5 entries" in rendered
+
+
+def test_render_dict_preview_labels_its_own_elision():
+    sm = make_sm()
+    sd = sm.register_store("tasks", "dict")
+    for i in range(45):
+        sd._dict_set(f"t{i}", {"name": f"Task {i}"})
+    rendered = sd.render_for_prompt()
+    assert "showing 3 of 45" in rendered
+    assert "tasks.list()" in rendered
+
+
+# ---- Run record ------------------------------------------------------
+
+
+def test_run_record_round_trips(tmp_path):
+    sm = StateManager("run_abc", state_dir=tmp_path)
+    sm.save_run_record({"run_id": "run_abc", "status": "running"})
+    sm.close()
+
+    reopened = StateManager("run_abc", state_dir=tmp_path)
+    assert reopened.load_run_record() == {"run_id": "run_abc", "status": "running"}
+
+
+def test_run_record_coerces_unserializable_values(tmp_path):
+    """Durability must not be defeated by a datetime in the record."""
+    from datetime import datetime, timezone
+
+    sm = StateManager("run_abc", state_dir=tmp_path)
+    sm.save_run_record({"created_at": datetime(2026, 1, 1, tzinfo=timezone.utc)})
+    assert sm.load_run_record()["created_at"].startswith("2026-01-01")
+
+
+def test_run_record_absent_by_default():
+    assert make_sm().load_run_record() is None
 
 
 def test_render_empty_list():
