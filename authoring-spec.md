@@ -257,7 +257,7 @@ Named queries (`queries` dict) are pre-built TinyDB `where` expressions. Custom 
 - Store names must be valid Python identifiers and unique within the Op.
 - Type hints must be one of `str`, `list[X]`, or `dict[str, X]`. The type hint selects which operations the agent gets; it is not validated against what the agent writes.
 - `Store(list[Finding], description="...")` takes an optional description, rendered with the store's summary so the agent knows what the store is for.
-- Stores are run-scoped: created when the run starts, destroyed when it ends.
+- Stores are run-scoped: created when the run starts, and not visible to another run. Their contents are persisted to `<state_dir>/state/<run_id>.json` as the run goes, so `run_status` can return them even after the process driving the run went away — but a stopped run cannot be continued, only read.
 
 ### `Op`
 
@@ -293,7 +293,7 @@ That's complete. Runnable as a process. All four of those are required — `Meta
 | `Tools` | `list` of `Tool` \| `Op` | External capabilities. An `Op` entry is a subroutine the agent can call mid-step. |
 | _`name`_ `= Store(T)` | `Store` attribute | Run-scoped state. Composition Ops only. |
 | `Resolve` | `dict[str, resolver spec]` | Pre-computed queries evaluated before dispatch. |
-| `Model` | `str` \| `None` | Optional model override for this Op's dispatch. |
+| `Model` | `str` \| `None` | Optional model override — a tier (`models.HIGH` / `MEDIUM` / `LOW`) or a model id. Every step must call `complete` before its turn ends, so `MEDIUM` is the practical floor; see `clops/models.py`. |
 | `body` | combinator tree | Absent on leaves; present on compositions. |
 | `entry` | `bool` | Marks an Op as a top-level entry point — the **procedure tag**. |
 
@@ -335,7 +335,8 @@ The size limits exist to make you feel the friction when an Op is getting too bi
 | `uses_type` | `Uses` holds something that is neither a Snippet nor an Op. |
 | `requires_type` | `Requires` holds something that isn't a `SnippetRole`. |
 | `tools_type` | `Tools` holds something that is neither a `Tool` nor an `Op` subclass. |
-| `tool_integrity` | `Tools` references a Tool or Op subroutine that isn't registered. |
+| `tool_integrity` | `Tools` references a `Tool` that isn't in the registry. |
+| `tool_op_reference` | `Tools` references an Op subroutine that isn't registered. |
 | `body_integrity` | `body` references an Op that isn't registered. |
 
 These are cross-artifact checks — the things a metaclass can't see at class-definition time, because the rest of the library hasn't been imported yet.
@@ -466,7 +467,7 @@ read_spill = Tool(
 
 Have `spill_payload` return `{handle, bytes, item_count, sha256}` — the count and the digest are what let a consumer prove it got the whole thing. Bulk that is genuinely *state* rather than a one-hop handoff belongs in a `Store` instead; the same discipline applies to reading it back.
 
-**2. Always label an elision.** Any tool or store read that returns a window must say it is a window: `"showing": "showing 1-4 of 45"`, plus an `elided` flag and a hint for fetching the rest. Never return an unlabelled prefix. An agent handed four entries with no indication that forty-one more exist will treat those four as its whole input — and the cheaper the model, the more reliably it draws that inference. `_read_file` in `clops/example_library/code_review/tools.py` is the shape to copy: it caps its output and names the line it stopped at, so the caller can re-read the rest in slices.
+**2. Always label an elision.** Any tool or store read that returns a window must say it is a window: `"showing": "showing 1-4 of 45"`, plus an `elided` flag and a hint for fetching the rest. Never return an unlabelled prefix. An agent handed four entries with no indication that forty-one more exist will treat those four as its whole input — and the cheaper the model, the more reliably it draws that inference. The runtime does this for store previews itself — an oversized collection renders as `"45 entries — showing 3 of 45 below, the rest elided (...). Call findings.list() for all 45: ..."` rather than a bare three — and `_read_file` in `clops/example_library/code_review/tools.py` is the shape to copy for your own Tools: it caps its output and names the line it stopped at, so the caller can re-read the rest in slices.
 
 **3. Declare a count and assert it on receipt.** Cheap, and it converts a silent short set into a hard failure. The producer declares 25; the consuming Op has a Field for the expected count and an `Intent` that says a mismatch stops the step rather than annotating it.
 

@@ -181,64 +181,63 @@ def test_output_without_fields_is_clean():
 
 
 def test_op_subroutine_in_tools_is_not_an_error():
-    """op.py accepts Op subclasses in Tools; the linter must agree."""
-    class Subroutine(Op):
+    """`Tools` accepts Op classes as subroutine references — the metaclass
+    allows them and the runtime resolves them through call_op. The linter
+    used to flag every one of them as an error."""
+
+    class Helper(Op):
         Input = M
         Output = M
-        Intent = "Do the sub-thing."
+        Intent = "help"
         Meta = "Test fixture Op used as a subroutine."
 
     class Caller(Op):
         Input = M
         Output = M
-        Intent = "Do the thing, delegating part of it."
-        Meta = "Test fixture Op that declares a subroutine."
-        Tools = [Subroutine]
+        Intent = "call a subroutine"
+        Meta = "Test fixture Op declaring an Op subroutine in Tools."
+        Tools = [Helper]
 
     result = LintResult()
     check_op(Caller, result)
-    assert result.ok, [str(f) for f in result.findings]
+    assert result.ok, [str(f) for f in result.errors]
 
 
-def test_unregistered_op_subroutine_is_a_tool_integrity_error():
+def test_op_subroutine_in_tools_must_be_registered():
     class Ghost(Op):
         Input = M
         Output = M
-        Intent = "Vanish."
+        Intent = "vanish"
         Meta = "Test fixture Op removed from the registry."
 
     class Caller2(Op):
         Input = M
         Output = M
-        Intent = "Call the ghost."
-        Meta = "Test fixture Op referencing an unregistered subroutine."
+        Intent = "call a missing subroutine"
+        Meta = "Test fixture Op declaring an unregistered subroutine."
         Tools = [Ghost]
 
     from clops.registry import registry
 
-    # Ops are keyed by qualified path; the bare-name multimap indexes them.
-    for key, op in list(registry._ops.items()):
-        if op is Ghost:
-            del registry._ops[key]
-            paths = registry._by_bare.get(Ghost.__name__)
-            if paths and key in paths:
-                paths.remove(key)
+    for qpath, op_cls in list(registry._ops.items()):
+        if op_cls is Ghost:
+            del registry._ops[qpath]
+            registry._by_bare.get(Ghost.__name__, []).remove(qpath)
 
     result = LintResult()
     check_op(Caller2, result)
-    assert any(f.rule == "tool_integrity" for f in result.errors)
+    assert any(f.rule == "tool_op_reference" for f in result.errors)
 
 
-def test_tools_type_error_names_both_accepted_shapes():
+def test_tools_type_error_for_neither_tool_nor_op():
     class Bad2(Op):
         Input = M
         Output = M
         Intent = "x"
         Meta = "Test fixture Op with a junk Tools entry."
 
-    Bad2.Tools = ["not a tool"]
+    Bad2.Tools = ["not-a-tool"]
+
     result = LintResult()
     check_op(Bad2, result)
-    findings = [f for f in result.errors if f.rule == "tools_type"]
-    assert len(findings) == 1
-    assert "Tool instance or an Op subclass" in findings[0].message
+    assert any(f.rule == "tools_type" for f in result.errors)

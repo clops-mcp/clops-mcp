@@ -63,6 +63,7 @@ MAIN_TOOL_NAMES = (
     "resolve_need",
     "run_status",
     "abort_run",
+    "list_runs",
 )
 SUBAGENT_TOOL_NAMES = ("complete", "need", "call_tool", "state")
 SETUP_TOOL_NAMES = ("configure_clops",)
@@ -384,9 +385,11 @@ class FlowServer:
 
     def __init__(self, config: ServerConfig):
         self.config = config
-        self.runtime = Runtime()
         self.project_dir = resolve_project_dir(config.project_dir)
         self.state_dir = runtime_state_dir(self.project_dir)
+        # Runs are hours long and outlive editor restarts and /mcp reloads;
+        # give the Runtime somewhere on disk to keep them.
+        self.runtime = Runtime(state_dir=self.state_dir)
         self.hook_socket = config.hook_socket_path or hook_socket_path(self.project_dir)
         self._library_import_error: Optional[str] = None
         self._constants: dict[str, str] = {}  # From .clops [constants]
@@ -514,6 +517,20 @@ class FlowServer:
             },
         ))
         tools.append(mcp_types.Tool(
+            name="list_runs",
+            description=(
+                "List this project's runs — live and persisted. Use it after a "
+                "reconnect or restart to find a run whose id you no longer have; "
+                "a run marked `interrupted` cannot be advanced, but run_status "
+                "still reads back its state stores and step outputs."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {},
+                "additionalProperties": False,
+            },
+        ))
+        tools.append(mcp_types.Tool(
             name="abort_run",
             description="Abort an in-flight run.",
             inputSchema={
@@ -624,6 +641,7 @@ class FlowServer:
             "step_complete_parallel": self._handle_step_complete_parallel,
             "resolve_need": self._handle_resolve_need,
             "run_status": self._handle_run_status,
+            "list_runs": self._handle_list_runs,
             "abort_run": self._handle_abort_run,
             "complete": self._handle_complete,
             "need": self._handle_need,
@@ -665,6 +683,9 @@ class FlowServer:
 
     def _handle_run_status(self, args: dict) -> Any:
         return self.runtime.status(args["run_id"])
+
+    def _handle_list_runs(self, _args: dict) -> Any:
+        return self.runtime.list_runs()
 
     def _handle_abort_run(self, args: dict) -> Any:
         return self.runtime.abort(args["run_id"])

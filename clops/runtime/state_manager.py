@@ -21,6 +21,12 @@ from tinydb import TinyDB, where
 from tinydb.storages import MemoryStorage
 
 
+#: How many entries of a list/dict store are shown inline in a dispatch
+#: prompt. Anything beyond this is elided — always with a label saying so
+#: (see StoreData._label_preview).
+PREVIEW_LIMIT = 3
+
+
 # ---- StoreData: one table, typed operations --------------------------
 
 
@@ -189,29 +195,48 @@ class StoreData:
             count = len(items)
             if count == 0:
                 return "empty"
-            preview = items[:3]
-            preview_str = json.dumps(preview, default=str)
-            suffix = ", ..." if count > 3 else ""
-            return f"{count} entries, preview: {preview_str}{suffix}"
+            preview_str = json.dumps(items[:PREVIEW_LIMIT], default=str)
+            return self._label_preview(count, preview_str)
 
         elif self.kind == "dict":
             data = self._dict_list()
             count = len(data)
             if count == 0:
                 return "empty"
-            preview_keys = list(data.keys())[:3]
+            preview_keys = list(data.keys())[:PREVIEW_LIMIT]
             preview = {k: data[k] for k in preview_keys}
             preview_str = json.dumps(preview, default=str)
-            suffix = ", ..." if count > 3 else ""
-            return f"{count} entries, preview: {preview_str}{suffix}"
+            return self._label_preview(count, preview_str)
 
         return "(unknown)"
+
+    def _label_preview(self, count: int, preview_str: str) -> str:
+        """Render a preview that names its own elision.
+
+        An unlabelled truncation reads as the whole store: a step handed
+        "4 entries, preview: [...]" for a 45-entry store has no way to tell
+        the preview from its complete input. Saying how much is being shown,
+        of how many, and which call returns the rest removes the inference.
+        """
+        if count <= PREVIEW_LIMIT:
+            return f"{count} entries: {preview_str}"
+        return (
+            f"{count} entries — showing {PREVIEW_LIMIT} of {count} below, "
+            f"the rest elided (...). Call {self.name}.list() for all "
+            f"{count}: {preview_str}"
+        )
 
 
 # ---- StateManager: one per run ---------------------------------------
 
 
 META_TABLE = "_meta"
+RUN_TABLE = "_run"
+
+
+def state_db_path(state_dir: Path, run_id: str) -> Path:
+    """Where a run's durable state lives under ``state_dir``."""
+    return state_dir / "state" / f"{run_id}.json"
 
 
 class StateManager:
@@ -229,7 +254,7 @@ class StateManager:
         self._resolved_aliases: dict[str, dict[str, tuple[str, dict[str, Any]]]] = {}
 
         if state_dir is not None:
-            db_path = state_dir / "state" / f"{run_id}.json"
+            db_path = state_db_path(state_dir, run_id)
             db_path.parent.mkdir(parents=True, exist_ok=True)
             self.db = TinyDB(str(db_path))
         else:
@@ -397,6 +422,25 @@ class StateManager:
                 lines.append(f"  {name}.{mname}(...)")
 
         return "\n".join(lines)
+
+    # ---- Run record ---------------------------------------------------
+    #
+    # The stores are only half of a run's state; the other half is the run
+    # record itself (which process, which executions, what each returned).
+    # Persisting it next to the stores is what makes an interrupted run
+    # legible afterwards instead of an orphaned state file.
+
+    def save_run_record(self, record: dict[str, Any]) -> None:
+        """Write (replacing) this run's record. Values are coerced to JSON."""
+        safe = json.loads(json.dumps(record, default=str))
+        table = self.db.table(RUN_TABLE)
+        table.truncate()
+        table.insert(safe)
+
+    def load_run_record(self) -> Optional[dict[str, Any]]:
+        """Read this run's persisted record, or None if there isn't one."""
+        docs = self.db.table(RUN_TABLE).all()
+        return dict(docs[0]) if docs else None
 
     def close(self) -> None:
         """Close the TinyDB instance."""

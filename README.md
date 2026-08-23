@@ -46,7 +46,7 @@ coming back, clops buys you nothing.
 | Objection | Answer |
 |---|---|
 | "Just write a skill." | A detailed skill is one long document Claude must self-apply. clops hands the agent one step at a time, with only that step's context. |
-| "Skills and slash commands are simpler." | They are, until you have twenty of them. A clops Op library of any size adds **zero** MCP tools — the surface is fixed at 12. Two hundred Ops do not crowd the namespace. |
+| "Skills and slash commands are simpler." | They are, until you have twenty of them. A clops Op library of any size adds **zero** MCP tools — the surface is fixed at 13. Two hundred Ops do not crowd the namespace. |
 | "Isn't that the same thing?" | Invocation is explicit: *run the dev workflow*, *run the support triage*. It runs the same way each time without you re-steering it. |
 | "Where does the reliability come from?" | Structure the model can't skip. Sequencing, branching, and state live in Python and are walked by the runtime, not inferred by an agent reading instructions. |
 
@@ -285,8 +285,12 @@ Version 0.4.4, alpha, one author. Specifically:
 - **The orchestrator is an LLM following a skill.** It is asked not to
   improvise, and mostly it doesn't, but "semi-deterministic" is the honest word.
   The structure is enforced; the relay is a well-behaved convention.
-- **Stores are run-scoped.** State exists for the duration of a run and is gone
-  after. There is no persistence between runs.
+- **Stores are run-scoped, and a run does not resume.** State is written to
+  disk as the run goes, so an interrupted run is not lost: `list_runs` finds
+  it and `run_status` returns its step outputs and store contents, marked
+  `interrupted`. But the control-flow position lives on the interpreter's
+  Python stack and does not outlive the process — you can read what a dead
+  run did, not continue it.
 - **Claude Code only.** clops needs an MCP server, subagents, and the
   `SubagentStop` hook working together. No other host is supported.
 - **`sequence` is a strict pipeline.** Each step sees only the previous step's
