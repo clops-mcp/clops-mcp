@@ -9,6 +9,13 @@ Tools are mentioned in the prompt but not enforced at the Agent level.
 The rendered prompt embeds the execution_id literally so the subagent
 can pass it on every `complete`/`need` call. This is the explicit
 correlation mechanism for Phase 1b (see phase-1b-spec.md section 2).
+
+It also carries the run's **workspace** — a scratch directory the runtime
+hands every leaf — plus the standing instruction to put long results in a
+file there and hand back a summary and a path. Long values travelling
+inline (through `complete`, or worse, through a state store every later
+step then re-reads) are the dominant token cost in a multi-step run, and
+the cheapest place to fix that is the prompt every agent already reads.
 """
 
 from __future__ import annotations
@@ -34,6 +41,50 @@ def _render_concept_fields(cls: type[Concept], indent: str = "  ") -> list[str]:
     return lines
 
 
+#: Roughly where an inline hand-off stops being cheaper than a file. Stated in
+#: the prompt as a number the agent can actually judge against, and reused by
+#: the runtime's oversized-state-write nudge so the two agree — an agent told
+#: one threshold and corrected against another would be right to ignore both.
+#: Not enforced: the runtime never sees a value until the agent has sent it.
+INLINE_BUDGET_CHARS = 2000
+
+
+def _render_workspace(workspace: str, *, use_manifest: bool) -> list[str]:
+    """The standing file hand-off contract, rendered into every leaf prompt.
+
+    The rule is the same in both output contracts — a long value costs the same
+    whether it travels through `complete` or through a store — so only the
+    `complete` line differs, and under the manifest contract it is dropped
+    entirely because that contract already asks for a one-liner.
+    """
+    lines = [
+        "## Long results go in a file",
+        f"Your workspace for this run is `{workspace}`. It already exists.",
+        "",
+        "Anything long — past roughly "
+        f"{INLINE_BUDGET_CHARS} characters, or more than a screenful someone "
+        "would scroll — gets written to a file there with your normal file "
+        "tools, and you hand back the path instead of the text:",
+    ]
+    if not use_manifest:
+        lines.append(
+            "- **Your output.** Make it a summary a reader can act on, plus the "
+            "absolute path of what you wrote. Not the contents."
+        )
+    lines.extend([
+        "- **State stores.** Store the path, never the file's text. Every later "
+        "step that reads that store pays for the whole value, whether it needs "
+        "it or not.",
+        "- **Input.** A field you receive may itself be a path an earlier step "
+        "wrote. Read it when you need the contents; don't copy it forward.",
+        "",
+        "Short results stay inline — a file for three lines costs more than it "
+        "saves. When you do write one, name it for what is in it and say so in "
+        "your summary, so the next step knows whether it needs to open it.",
+    ])
+    return lines
+
+
 def render_prompt(
     op_cls: type[Op],
     input_value: Any,
@@ -44,6 +95,7 @@ def render_prompt(
     state_manager: Optional[Any] = None,
     manifest_mode: bool = False,
     require_full_output: bool = True,
+    workspace: Optional[str] = None,
 ) -> str:
     """Assemble the full prompt for a single leaf dispatch.
 
@@ -52,6 +104,8 @@ def render_prompt(
     literal execution_id, the input value, and optionally:
       - a supplemental section for need-resolution retries.
       - a "Result from <subroutine>" section after a subroutine completes.
+      - a workspace section, when the run has one, telling the agent to put
+        long results in a file and hand back a summary plus the path.
     """
     intent = (op_cls.Intent or "").strip()
 
@@ -111,6 +165,10 @@ def render_prompt(
         lines.append("## What you'll produce")
         lines.append(f"{output_cls.__name__}: {output_cls.description.strip()}")
         lines.extend(_render_concept_fields(output_cls))
+
+    if workspace:
+        lines.append("")
+        lines.extend(_render_workspace(workspace, use_manifest=use_manifest))
 
     # Separate programmatic Tools from Op subroutine capabilities.
     tool_entries = [t for t in op_cls.Tools if not (isinstance(t, type) and issubclass(t, Op))]
@@ -193,6 +251,14 @@ def render_prompt(
             "contents — your actual work stays in your reply, and you'll be asked for "
             "specifics only if a later step needs them."
         )
+    elif workspace:
+        lines.append(
+            f"- Call `{naming.tool('complete')}(execution_id=\"{execution_id}\", output=…)` "
+            "when your step is done. Include reasoning with your output. If the "
+            "result runs long, write it to a file in your workspace first and "
+            "make `output` a summary plus that path — a summary the caller can "
+            "act on without opening the file, and a path for when it must."
+        )
     else:
         lines.append(
             f"- Call `{naming.tool('complete')}(execution_id=\"{execution_id}\", output=…)` "
@@ -265,6 +331,7 @@ def build_agent_config(
     state_manager: Optional[Any] = None,
     manifest_mode: bool = False,
     require_full_output: bool = True,
+    workspace: Optional[str] = None,
 ) -> dict[str, Any]:
     """Build the per-dispatch subagent config payload.
 
@@ -277,6 +344,7 @@ def build_agent_config(
     `pending_subroutine_result`: set on worker re-dispatches after a subroutine
     completes; appends a Result section with the subroutine's output.
     `state_manager`: if set, injects a State section with store values and operations.
+    `workspace`: if set, injects the file hand-off contract naming that directory.
     """
     prompt = render_prompt(
         op_cls,
@@ -287,6 +355,7 @@ def build_agent_config(
         state_manager=state_manager,
         manifest_mode=manifest_mode,
         require_full_output=require_full_output,
+        workspace=workspace,
     )
 
     config: dict[str, Any] = {
