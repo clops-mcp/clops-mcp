@@ -178,3 +178,94 @@ def test_state_store_prompt_shows_value_type_fields():
     rendered = sm.render_for_prompt()
     assert "title (required)" in rendered
     assert "done (optional)" in rendered
+
+
+# ---- bulk fields -----------------------------------------------------
+
+
+def test_field_bulk_defaults_false():
+    assert Field("The task name").bulk is False
+
+
+def test_field_bulk_opt_in():
+    f = Field("the full flow records", bulk=True)
+    assert f.bulk is True
+    assert f.required is True
+
+
+def test_field_repr_shows_bulk():
+    f = Field("the records", bulk=True)
+    f.name = "flows"
+    assert "bulk" in repr(f)
+    assert "bulk" not in repr(Field("the count"))
+
+
+def test_bulk_field_renders_qualifier_and_relay_note():
+    """A bulk Output field is labelled and carries the relay instruction."""
+    from clops.runtime.dispatch import _render_concept_fields
+
+    class FlowManifest(Concept):
+        description = "A manifest of the characterised flows."
+        handle = Field("the handle holding the records")
+        flows = Field("the full flow records", bulk=True)
+
+    rendered = "\n".join(_render_concept_fields(FlowManifest, relay_note=True))
+    assert "flows (required, bulk): the full flow records" in rendered
+    assert "handle (required): the handle holding the records" in rendered
+    assert "unbounded collection" in rendered
+    assert "reference plus a count" in rendered
+
+
+def test_relay_note_omitted_without_bulk_fields():
+    from clops.runtime.dispatch import _render_concept_fields
+
+    class Plain(Concept):
+        description = "A plain output."
+        summary = Field("What was done")
+
+    rendered = "\n".join(_render_concept_fields(Plain, relay_note=True))
+    assert "unbounded collection" not in rendered
+    assert "summary (required): What was done" in rendered
+
+
+def test_relay_note_not_rendered_on_the_input_side():
+    """The note is about what you hand back, so it's Output-only."""
+    from clops.runtime.dispatch import _render_concept_fields
+
+    class Bulky(Concept):
+        description = "Bulky input."
+        records = Field("the records", bulk=True)
+
+    rendered = "\n".join(_render_concept_fields(Bulky))
+    assert "records (required, bulk): the records" in rendered
+    assert "unbounded collection" not in rendered
+
+
+def test_dispatch_prompt_carries_relay_note_for_bulk_output():
+    from clops import Op
+    from clops.registry import registry
+    from clops.runtime.dispatch import render_prompt
+
+    registry.clear()
+
+    class Brief(Concept):
+        description = "A brief."
+        goal = Field("What to do")
+
+    class Findings(Concept):
+        description = "A manifest of findings."
+        handle = Field("the handle holding the findings")
+        findings = Field("the full finding records", bulk=True)
+
+    class Audit(Op):
+        Input = Brief
+        Output = Findings
+        Intent = "Audit the thing."
+        Meta = "Test."
+        entry = True
+
+    prompt = render_prompt(Audit, {"goal": "go"}, execution_id="e1")
+    assert "findings (required, bulk): the full finding records" in prompt
+    assert "unbounded collection" in prompt
+    # The input side stays clean.
+    assert "goal (required): What to do" in prompt

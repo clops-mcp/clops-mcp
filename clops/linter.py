@@ -84,6 +84,22 @@ def check_op(op_cls: type[Op], result: LintResult) -> None:
             "Consider splitting.",
         )
 
+    output_cls = getattr(op_cls, "Output", None)
+    if isinstance(output_cls, type) and issubclass(output_cls, Concept):
+        out_fields = list(getattr(output_cls, "_fields", {}).values())
+        bulk = [f for f in out_fields if getattr(f, "bulk", False)]
+        if bulk and len(bulk) == len(out_fields):
+            result.add(
+                Severity.WARNING,
+                name,
+                "output_bulk_only",
+                f"Output {output_cls.__name__!r} declares only bulk field(s) "
+                f"({', '.join(f.name for f in bulk)}), so the relay carries "
+                "nothing but payload. Add at least one thin field — a handle "
+                "or reference, a count, or your verdict — so the consumer has "
+                "something to assert against.",
+            )
+
     uses = list(getattr(op_cls, "Uses", []))
     requires = list(getattr(op_cls, "Requires", []))
 

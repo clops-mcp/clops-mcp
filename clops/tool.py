@@ -1,6 +1,14 @@
 """Tool: external capability exposed to an Op during reasoning.
 
-Phase 0 placeholder — holds metadata only. Dispatch/invocation comes in Phase 1.
+A Tool is a name, a description, an argument hint and a Python handler.
+Declaring one registers it. An Op lists Tools it may use; the renderer
+describes them in the dispatched prompt, and the agent invokes one
+through the single ``call_tool`` MCP entry, which looks the Tool up in
+the registry and runs its handler.
+
+``parameters`` is a ``{name: type}`` hint rendered into the prompt. It is
+not validated at runtime. ``handler`` is optional: a Tool without one can
+be referenced and described, but calling it fails.
 """
 
 from __future__ import annotations

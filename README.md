@@ -46,7 +46,7 @@ coming back, clops buys you nothing.
 | Objection | Answer |
 |---|---|
 | "Just write a skill." | A detailed skill is one long document Claude must self-apply. clops hands the agent one step at a time, with only that step's context. |
-| "Skills and slash commands are simpler." | They are, until you have twenty of them. A clops Op library of any size adds **zero** MCP tools — the surface is fixed at 12. Two hundred Ops do not crowd the namespace. |
+| "Skills and slash commands are simpler." | They are, until you have twenty of them. A clops Op library of any size adds **zero** MCP tools — the surface is fixed at 13. Two hundred Ops do not crowd the namespace. |
 | "Isn't that the same thing?" | Invocation is explicit: *run the dev workflow*, *run the support triage*. It runs the same way each time without you re-steering it. |
 | "Where does the reliability come from?" | Structure the model can't skip. Sequencing, branching, and state live in Python and are walked by the runtime, not inferred by an agent reading instructions. |
 
@@ -252,19 +252,23 @@ Three things to notice:
 - **`Concept` and `Field` are descriptions, not schemas.** Nothing validates the
   runtime value; it is whatever the producing agent produced. The descriptions
   are rendered into the prompt so the agent knows what it is receiving and what
-  to hand back.
+  to hand back. Because a Field is prose with no type parameter, it is
+  easy to write one that quietly asks for an unbounded collection inline — see
+  [Keeping the relay thin](https://github.com/clops-mcp/clops-mcp/blob/main/authoring-spec.md#keeping-the-relay-thin)
+  before you write an `Output`.
 
 What *is* enforced is the declaration. `OpMeta` raises `TypeError` at
 class-definition time if `Intent`, `Meta`, `Input`, or `Output` is missing or
 the wrong shape — the import fails, not the run. `clops lint` covers the
 cross-artifact checks a metaclass can't see: unresolvable snippet roles,
-unregistered references, oversized Intents.
+unregistered references, oversized Intents, Outputs that carry nothing but bulk.
 
 ### The primitives
 
 | | |
 |---|---|
 | **Concept** | A named, described handle for data flowing between Ops. |
+| **Field** | An optional named, described member of a Concept. Prose, not a type — it tells the agent what to provide or hand back. |
 | **Snippet** | Reusable prompt text — policy, format rules — pinned by reference or resolved by role. |
 | **Tool** | A Python function an Op's subagent can call mid-reasoning. Not a Claude Code tool. |
 | **Store** | Run-scoped mutable state shared across a composition's steps. TinyDB-backed. The declared type (`str`, `list[X]`, `dict[str, X]`) selects which operations the agent gets. |
@@ -281,8 +285,12 @@ Version 0.4.4, alpha, one author. Specifically:
 - **The orchestrator is an LLM following a skill.** It is asked not to
   improvise, and mostly it doesn't, but "semi-deterministic" is the honest word.
   The structure is enforced; the relay is a well-behaved convention.
-- **Stores are run-scoped.** State exists for the duration of a run and is gone
-  after. There is no persistence between runs.
+- **Stores are run-scoped, and a run does not resume.** State is written to
+  disk as the run goes, so an interrupted run is not lost: `list_runs` finds
+  it and `run_status` returns its step outputs and store contents, marked
+  `interrupted`. But the control-flow position lives on the interpreter's
+  Python stack and does not outlive the process — you can read what a dead
+  run did, not continue it.
 - **Claude Code only.** clops needs an MCP server, subagents, and the
   `SubagentStop` hook working together. No other host is supported.
 - **`sequence` is a strict pipeline.** Each step sees only the previous step's
@@ -303,7 +311,7 @@ Version 0.4.4, alpha, one author. Specifically:
 
 | Doc | What it covers |
 |-----|---------------|
-| [Authoring Spec](https://github.com/clops-mcp/clops-mcp/blob/main/authoring-spec.md) | Full authoring reference — the five primitives, combinators, and the rules the linter enforces |
+| [Authoring Spec](https://github.com/clops-mcp/clops-mcp/blob/main/authoring-spec.md) | Full authoring reference — the primitives, combinators, prompt assembly, and every rule the metaclass and linter enforce |
 
 The link is absolute so it also resolves from the PyPI project page.
 

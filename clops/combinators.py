@@ -1,6 +1,8 @@
 """Composition combinators — return inspectable data structures; do not execute.
 
-In Phase 0 these are pure descriptions of flow shape. The runtime will walk them later.
+Each combinator is a plain description of flow shape, built at import time
+and walked by the runtime's driver at run time. `sequence`, `branch_on`,
+`gather` and `loop` all execute. Building one runs nothing.
 """
 
 from __future__ import annotations

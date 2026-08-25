@@ -7,8 +7,9 @@ Agent tool has no per-call override for those fields. The Op's declared
 Tools are mentioned in the prompt but not enforced at the Agent level.
 
 The rendered prompt embeds the execution_id literally so the subagent
-can pass it on every `complete`/`need` call. This is the explicit
-correlation mechanism for Phase 1b (see phase-1b-spec.md section 2).
+can pass it on every `complete`/`need` call. That literal is the explicit
+correlation mechanism — the runtime trusts the id the subagent quotes
+back rather than inferring which execution a result belongs to.
 
 It also carries the run's **workspace** — a scratch directory the runtime
 hands every leaf — plus the standing instruction to put long results in a
@@ -29,15 +30,42 @@ from clops.registry import registry
 from clops.snippet import Snippet, SnippetRole
 
 
-def _render_concept_fields(cls: type[Concept], indent: str = "  ") -> list[str]:
-    """Render a Concept's Fields as a list of lines, or empty if no Fields."""
+def _render_concept_fields(
+    cls: type[Concept],
+    indent: str = "  ",
+    *,
+    relay_note: bool = False,
+) -> list[str]:
+    """Render a Concept's Fields as a list of lines, or empty if no Fields.
+
+    Fields marked ``bulk=True`` carry unbounded collections. When
+    ``relay_note`` is set (the Output side), they get a trailing
+    instruction to relay a reference and a count rather than the
+    contents -- the relay is for judgments and references, and an inline
+    collection is what gets cut off in transit.
+    """
     fields = getattr(cls, "_fields", {})
     if not fields:
         return []
     lines = []
     for f in fields.values():
-        req = "required" if f.required else "optional"
-        lines.append(f"{indent}- {f.name} ({req}): {f.description}")
+        quals = ["required" if f.required else "optional"]
+        if getattr(f, "bulk", False):
+            quals.append("bulk")
+        lines.append(f"{indent}- {f.name} ({', '.join(quals)}): {f.description}")
+
+    bulk_names = [f.name for f in fields.values() if getattr(f, "bulk", False)]
+    if relay_note and bulk_names:
+        lines.append("")
+        lines.append(
+            f"{indent}{', '.join(bulk_names)} "
+            f"{'carry' if len(bulk_names) > 1 else 'carries'} an unbounded "
+            "collection. Put the contents somewhere durable and hand back a "
+            "reference plus a count, not the items themselves. If you end up "
+            "relaying fewer items than you found, say so in as many words — a "
+            "short count you can stand behind is worth more than a list that "
+            "gets cut off silently."
+        )
     return lines
 
 
@@ -160,11 +188,11 @@ def render_prompt(
             "reply — you do NOT need to write it all out for clops. A later step will "
             "ask you for any piece it actually needs."
         )
-        lines.extend(_render_concept_fields(output_cls))
+        lines.extend(_render_concept_fields(output_cls, relay_note=True))
     else:
         lines.append("## What you'll produce")
         lines.append(f"{output_cls.__name__}: {output_cls.description.strip()}")
-        lines.extend(_render_concept_fields(output_cls))
+        lines.extend(_render_concept_fields(output_cls, relay_note=True))
 
     if workspace:
         lines.append("")
