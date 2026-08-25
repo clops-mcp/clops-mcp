@@ -9,8 +9,12 @@ when-to-use: >
 
 ## Running a process
 
-1. `list_processes()` — what this project can run. If it comes back empty, or a
-   library failed to import, call `configure_clops()`; it explains what to fix.
+1. `list_processes()` — what this project can run. Names only; pass
+   `descriptions=true` if the names alone don't say which one to start (that
+   comes back as a Markdown table, ready to show the user), and `processes=[…]`
+   to ask about a few by name, which also lengthens their descriptions. If it
+   comes back empty, or a library failed to import, call `configure_clops()`;
+   it explains what to fix.
 2. `start_process(process=…, input=…)`.
 3. **Do what the response's `next_step` field says**, then call the tool it
    names. Repeat until `action` is `done` or `failed`.
