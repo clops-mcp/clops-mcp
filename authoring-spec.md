@@ -116,15 +116,15 @@ class Output(Concept):
 class Output(Concept):
     description = "A manifest of the characterised flows."
 
-    handle = Field("the spill handle holding the full flow records")
-    flow_count = Field("how many records are behind the handle")
+    flows_path = Field("absolute path of the file holding the full flow records")
+    flow_count = Field("how many records are in that file")
     flow_ids = Field("the ids, so the consumer can assert coverage")
     verdict = Field("your judgment: what the set shows, and what is missing")
 ```
 
 Nothing about the first version is malformed — it is a well-written field, and the agent emitting a large array is the specified behaviour, not a bug. That is exactly why it is worth naming: the cost shows up downstream, in a relay that was never good at payload. See [Keeping the relay thin](#keeping-the-relay-thin).
 
-**Thin by construction is the default.** Ids, counts, verdicts, and a handle on the relay; bulk behind the handle. Reach for an inline collection only when it is bounded and small — a category, a five-item checklist, a verdict per named service.
+**Thin by construction is the default.** Ids, counts, verdicts, and a path on the relay; bulk in a file in the run's workspace. Reach for an inline collection only when it is bounded and small — a category, a five-item checklist, a verdict per named service.
 
 **Declare a count alongside every collection, and assert it on receipt.** A count is the cheapest possible integrity check: the producer says 25, the consumer receives 7 and fails loudly instead of proceeding on a short set it had no way to notice. Give the consuming Op a Field for the expected count and say in its `Intent` that a mismatch is a hard stop, not a note.
 
@@ -134,8 +134,8 @@ Nothing about the first version is malformed — it is a well-written field, and
 class Output(Concept):
     description = "A manifest of the characterised flows."
 
-    handle = Field("the spill handle holding the full flow records")
-    flow_count = Field("how many records are behind the handle")
+    flows_path = Field("absolute path of the file holding the full flow records")
+    flow_count = Field("how many records are in that file")
     flows = Field("the full flow records", bulk=True)
 ```
 
@@ -258,6 +258,7 @@ Named queries (`queries` dict) are pre-built TinyDB `where` expressions. Custom 
 - Type hints must be one of `str`, `list[X]`, or `dict[str, X]`. The type hint selects which operations the agent gets; it is not validated against what the agent writes.
 - `Store(list[Finding], description="...")` takes an optional description, rendered with the store's summary so the agent knows what the store is for.
 - Stores are run-scoped: created when the run starts, and not visible to another run. Their contents are persisted to `<state_dir>/state/<run_id>.json` as the run goes, so `run_status` can return them even after the process driving the run went away — but a stopped run cannot be continued, only read.
+- Keep stored values small. A store is rendered into every prompt that can see it, so a long value is paid for by every later step, not just the one that needed it. For anything long, agents are told to write a file in the run's workspace and store the path — design your Concepts so that reads naturally.
 
 ### `Op`
 
@@ -436,37 +437,40 @@ Run `clops init --library "work_ops @ ~/work/work-ops"` to add an entry and rege
 
 Every leaf dispatch ends with the agent calling `complete(execution_id, output)`, and that value travels back to the runtime as the **relay**. The relay is good at judgments and references. It has never been good at payload: a long composition accumulates state, prompts grow as it goes, and an oversized output gets cut in transit. Worse, the cut is not always announced — a step that quietly relays 20 of the 30 records it characterised is indistinguishable from a step that found 20.
 
-So size the Output contract deliberately. Three habits, in order of leverage.
+The runtime already does the heavy half of this for you. Every run gets a **workspace** — a scratch directory named in every leaf prompt, with the standing rule that anything past roughly 2000 characters is written to a file there and handed back as a path plus a summary. You do not have to teach that to each Op; see [the run workspace](README.md#the-run-workspace) for where it lives and how to turn it off.
 
-**1. Manifest on the relay, bulk behind a handle.** Write the bulk somewhere durable, hand back a reference. A handle plus a count plus a verdict is tens of bytes where the records were kilobytes, and the consumer fetches exactly the slice it needs rather than being handed the whole set on the relay and reading whatever survived the trip.
+What the runtime cannot do for you is decide what your `Output` *asks for*. A field that says "for each flow: the name, the expression, the evidence" is still an instruction to produce that array, and the agent will produce it — into a file if it is long, but the shape of the contract is yours. So size it deliberately. Three habits, in order of leverage.
+
+**1. Ask for a manifest, not a payload.** Ids, counts, a verdict, and a path or handle on the relay; bulk behind it. This is the same instinct the workspace rule encodes, moved up into the Output contract, where it also tells the *consuming* Op what to expect:
 
 ```python
-spill_payload = Tool(
-    name="spill_payload",
-    description=(
-        "Write a large result to disk and get back a short handle. Use this "
-        "whenever your output is bulky — an artifact array, an inventory, a "
-        "violation list. Then relay the handle, the item count and your "
-        "judgment through complete(), and let the next step read the bulk "
-        "with read_spill. The relay is for references and conclusions."
-    ),
-    parameters={"run_id": str, "label": str, "payload": dict},
-    handler=_spill_payload,
-)
+class Output(Concept):
+    description = "A manifest of the characterised flows."
 
-read_spill = Tool(
-    name="read_spill",
+    flows_path = Field("absolute path of the file holding the full flow records")
+    flow_count = Field("how many records are in that file")
+    flow_ids = Field("the ids, so the consumer can assert coverage")
+    verdict = Field("your judgment: what the set shows, and what is missing")
+```
+
+Write the consuming Op's `Input` to expect a path, not the text. A Concept description that says "the characterised flows" invites the previous step to inline them; one that says "the path to the flow records, and how many are in it" does not.
+
+Reach for a `Tool` pair of your own only when a plain path is not enough — when consumers need paginated reads with a labelled window, or a digest to prove they got the whole set:
+
+```python
+read_flows = Tool(
+    name="read_flows",
     description=(
-        "Read a spilled payload by handle, a page at a time. Always states "
-        "how much of the whole it is showing and how to get the rest, so a "
-        "partial read can never be mistaken for the complete set."
+        "Read a flow-record file by path, a page at a time. Always states how "
+        "much of the whole it is showing and how to get the rest, so a partial "
+        "read can never be mistaken for the complete set."
     ),
-    parameters={"run_id": str, "handle": str, "offset": int, "limit": int},
-    handler=_read_spill,
+    parameters={"path": str, "offset": int, "limit": int},
+    handler=_read_flows,
 )
 ```
 
-Have `spill_payload` return `{handle, bytes, item_count, sha256}` — the count and the digest are what let a consumer prove it got the whole thing. Bulk that is genuinely *state* rather than a one-hop handoff belongs in a `Store` instead; the same discipline applies to reading it back.
+Returning `{count, sha256}` alongside the page is what lets a consumer prove it got everything. Bulk that is genuinely *state* rather than a one-hop handoff belongs in a `Store` — as a path, per the Store rules above.
 
 **2. Always label an elision.** Any tool or store read that returns a window must say it is a window: `"showing": "showing 1-4 of 45"`, plus an `elided` flag and a hint for fetching the rest. Never return an unlabelled prefix. An agent handed four entries with no indication that forty-one more exist will treat those four as its whole input — and the cheaper the model, the more reliably it draws that inference. The runtime does this for store previews itself — an oversized collection renders as `"45 entries — showing 3 of 45 below, the rest elided (...). Call findings.list() for all 45: ..."` rather than a bare three — and `_read_file` in `clops/example_library/code_review/tools.py` is the shape to copy for your own Tools: it caps its output and names the line it stopped at, so the caller can re-read the rest in slices.
 
@@ -507,6 +511,7 @@ The framework dispatches a leaf Op by rendering one prompt, in this order:
 | `## Policies` | `Uses` snippets, then `Requires` snippets resolved by role |
 | `## What you'll receive` | `Input` Concept description + its Fields |
 | `## What you'll produce` | `Output` Concept description + its Fields (`## What to hold by the end` under `output_contract = manifest`) |
+| `## Long results go in a file` | The run's workspace and the file hand-off rule. Omitted under `[runtime] workspace = off` |
 | `## Capabilities available to you` | `Tools` — programmatic Tools and Op subroutines, listed separately |
 | `## State` | Store summaries: scalars inline, collections as counts/keys |
 | _(resolved values)_ | `Resolve` entries, pre-fetched before dispatch |
@@ -644,7 +649,7 @@ Reads the registry only; no side effects on disk.
 - **Declare Stores on the outermost composition.** Child Ops inherit access automatically. Prefer one composition owning the store over duplicating state across siblings.
 - **Use Resolve for data the Op needs up front.** If a leaf Op always needs a specific record from a store to start work, declare it in `Resolve` rather than instructing the agent to fetch it manually.
 - **Mention stores in Intent.** The agent needs to know stores exist and what they're for. A sentence like "The `tasks` store contains the current backlog; update task status as you complete each one" is enough to make the store *discoverable* — but see the Don't below: it does not make the write happen.
-- **Keep Outputs thin.** A manifest — ids, counts, a verdict, and a handle — belongs on the relay; bulk belongs behind the handle. Inline a collection only when it's bounded and small. See [Keeping the relay thin](#keeping-the-relay-thin).
+- **Keep Outputs thin.** A manifest — ids, counts, a verdict, and a path — belongs on the relay; bulk belongs in a file in the run's workspace. Inline a collection only when it's bounded and small. See [Keeping the relay thin](#keeping-the-relay-thin).
 - **Declare a count alongside every collection, and assert it on receipt.** The producer says 25, the consumer receives 7 and stops. Without the count, a short set is indistinguishable from a complete one.
 - **Label every elision.** A tool or store read that returns a window must say so — "showing 1-4 of 45", plus how to get the rest. Never an unlabelled prefix.
 - **Use constants for project-level config.** Company names, thresholds, and contact info belong in `.clops` `[constants]`, not hardcoded in Intent strings.
@@ -661,8 +666,9 @@ Reads the registry only; no side effects on disk.
 - **Don't rely on `branch_on` reading structured output without a key function.** The key is your parser.
 - **Don't add Tools speculatively.** Only add when an Op actually needs external data.
 - **Don't use Stores for ephemeral data that flows naturally between Ops.** If Op A produces output and Op B consumes it in a sequence, that's Input/Output, not a store. Stores are for state that accumulates across multiple steps or that multiple Ops read/write independently.
+- **Don't design an Op around a long value in a store.** Stores are summarised into every prompt that can see them. If a step produces a report, a transcript, or a big list, the agent will write it to a file in the run's workspace and store the path; write your Concept descriptions to expect a path, not the text.
 - **Don't over-resolve.** Resolve is for data the Op needs before it starts reasoning. If the agent might or might not look something up, let it call `mcp__clops__state` interactively.
-- **Don't write an Output field of the form _"for each X: a, b, c, d"_ over an unbounded collection.** That's a payload field, and it will be relayed. It is well-formed and it is still the wrong shape — spill the bulk and relay a handle, a count and your judgment instead.
+- **Don't write an Output field of the form _"for each X: a, b, c, d"_ over an unbounded collection.** That's a payload field, and it will be relayed. It is well-formed and it is still the wrong shape — ask for a path into the run's workspace, a count and your judgment instead.
 - **Don't mistake a long field description for a good one.** A composite field's description has to be self-sufficient, because there's no type parameter and the renderer doesn't recurse. Self-sufficiency is about being unambiguous, not about asking for more.
 - **Don't treat a store write instructed in prose as a durability mechanism.** Asking an Op to append to a store is a request the model may decline, silently. If the write has to happen, run it from a `Tool` handler and give the consumer a count to check.
 - **Don't set `Examples`, `exit`, `before_run` or `after_run` and expect anything.** They're declared but unread — see the table in the `Op` section. They fail silently, which is the worst way to fail.
