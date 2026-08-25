@@ -364,11 +364,118 @@ def next_step(payload: dict[str, Any]) -> str | None:
     return None
 
 
+def _as_bool(value: Any) -> bool:
+    """Coerce a flag argument, tolerating the string a client may send.
+
+    The schema says boolean, but an LLM filling in a tool call is perfectly
+    capable of sending "false" — and `bool("false")` is True, which would
+    turn the flag on precisely when it was asked to be off.
+    """
+    if isinstance(value, str):
+        return value.strip().lower() in {"true", "1", "yes"}
+    return bool(value)
+
+
+def _as_str_list(value: Any) -> Optional[list[str]]:
+    """Coerce a list-of-names argument, tolerating the shapes a client sends.
+
+    Same reasoning as `_as_bool`: the schema says array-of-string, and a model
+    filling in the call may still hand over one bare name, a JSON string, or a
+    comma-separated one. All three are unambiguous — a process name is an
+    identifier or a slash-separated path, so it contains neither commas nor
+    brackets — and the alternative is an error about a process nobody named.
+    """
+    if value is None:
+        return None
+    if isinstance(value, (list, tuple)):
+        return [str(v) for v in value]
+    if isinstance(value, str):
+        text = value.strip()
+        if text.startswith("["):
+            try:
+                parsed = json.loads(text)
+            except ValueError:
+                parsed = None
+            if isinstance(parsed, list):
+                return [str(v) for v in parsed]
+        if "," in text:
+            return [part.strip() for part in text.split(",") if part.strip()]
+        return [text] if text else []
+    return [str(value)]
+
+
+class Markdown(str):
+    """A payload that is already prose, and should reach the client as prose.
+
+    `_text` JSON-encodes everything, which is right for structured results and
+    wrong for a rendered table: quoting it turns every newline into `\\n` and
+    hands back one long escaped line — unreadable, and larger than the thing it
+    encodes. A plain `str` can't opt out, because Tool handlers return strings
+    too and those must keep their JSON encoding. This marker draws that line
+    without changing what any existing payload does.
+    """
+
+
+def _md_cell(text: str) -> str:
+    """Make `text` safe inside a table cell.
+
+    A pipe would open a column that isn't there, and a newline would end the
+    row early. Descriptions are single-line by construction, but `Summary` is
+    author-supplied and a description can quote a shell command.
+    """
+    return " ".join(str(text).split()).replace("|", "\\|")
+
+
+def render_process_table(rows: list[Any]) -> Markdown:
+    """Render a `list_processes` result as a Markdown table.
+
+    Takes either shape the runtime returns: bare names, or name/description
+    dicts. Names are padded to a common width and descriptions are not —
+    alignment is what makes the left column scannable, and padding the long
+    column to match its widest row would spend far more than it returns.
+    """
+    if not rows:
+        return Markdown("_No processes._")
+
+    described = isinstance(rows[0], dict)
+    names = [_md_cell(r["name"] if described else r) for r in rows]
+    width = max(len(n) for n in names)
+
+    if not described:
+        lines = [f"| {'Process'.ljust(width)} |", f"| {'-' * width} |"]
+        lines += [f"| {n.ljust(width)} |" for n in names]
+        return Markdown("\n".join(lines))
+
+    descriptions = [_md_cell(r.get("description", "")) for r in rows]
+    lines = [f"| {'Process'.ljust(width)} | Description |", f"| {'-' * width} | --- |"]
+    lines += [
+        f"| {name.ljust(width)} | {desc} |"
+        for name, desc in zip(names, descriptions)
+    ]
+    return Markdown("\n".join(lines))
+
+
+_FORMATS = ("auto", "table", "json")
+
+
+def _as_format(value: Any) -> str:
+    """Coerce the `format` argument; anything unrecognised means `auto`.
+
+    A listing is not worth failing over a spelling of its own output format,
+    and `auto` is what the caller would have got by leaving it out.
+    """
+    if isinstance(value, str) and value.strip().lower() in _FORMATS:
+        return value.strip().lower()
+    return "auto"
+
+
 def _text(payload: Any) -> list[mcp_types.TextContent]:
     # Every tool result funnels through here, which is why the instruction is
     # attached at this point rather than at the five places payloads are built.
     # `next_step` returns None for anything without an `action`, so read-only
     # results like list_processes and state are untouched.
+    if isinstance(payload, Markdown):
+        return [mcp_types.TextContent(type="text", text=str(payload))]
     if isinstance(payload, dict) and "action" in payload:
         guidance = next_step(payload)
         if guidance and "next_step" not in payload:
@@ -440,8 +547,46 @@ class FlowServer:
         # Main-thread tools
         tools.append(mcp_types.Tool(
             name="list_processes",
-            description="List available clops processes (Ops declared with entry=True).",
-            inputSchema={"type": "object", "properties": {}, "additionalProperties": False},
+            description=(
+                "List available clops processes (Ops declared with entry=True). "
+                "Returns names only; pass descriptions=true for a one-line gist "
+                "of each when the names alone don't say enough, and processes=[…] "
+                "to narrow the listing to the ones you care about. A described "
+                "listing comes back as a Markdown table; format= overrides that."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "descriptions": {
+                        "type": "boolean",
+                        "description": (
+                            "Include a one-line description per process. "
+                            "Default false — names only."
+                        ),
+                    },
+                    "processes": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": (
+                            "Restrict the listing to these process names, kept "
+                            "in the order given. Omit for all of them. "
+                            "Filtering also lengthens the descriptions, which "
+                            "share a budget across the rows returned."
+                        ),
+                    },
+                    "format": {
+                        "type": "string",
+                        "enum": ["auto", "table", "json"],
+                        "description": (
+                            "How to render the listing. 'auto' (default) is a "
+                            "JSON array of names, or a Markdown table once "
+                            "descriptions are on. 'table' and 'json' force one "
+                            "either way."
+                        ),
+                    },
+                },
+                "additionalProperties": False,
+            },
         ))
         tools.append(mcp_types.Tool(
             name="start_process",
@@ -661,8 +806,19 @@ class FlowServer:
             using_default_library=self.config.using_default_library,
         )
 
-    def _handle_list_processes(self, _args: dict) -> Any:
-        return self.runtime.list_processes()
+    def _handle_list_processes(self, args: dict) -> Any:
+        descriptions = _as_bool(args.get("descriptions", False))
+        rows = self.runtime.list_processes(
+            descriptions=descriptions,
+            processes=_as_str_list(args.get("processes")),
+        )
+        fmt = _as_format(args.get("format"))
+        # `auto` tables the described listing and leaves the names alone: a
+        # column of names is the one shape a table makes no easier to read,
+        # and it is the shape callers hit on every session start.
+        if fmt == "table" or (fmt == "auto" and descriptions):
+            return render_process_table(rows)
+        return rows
 
     def _handle_start_process(self, args: dict) -> Any:
         process = args["process"]
